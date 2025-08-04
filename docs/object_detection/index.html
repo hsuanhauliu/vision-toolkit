@@ -1,0 +1,972 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Object Detection</title>
+    <!-- Tailwind CSS for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts: Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: {
+                            DEFAULT: '#8B5CF6',
+                            hover: '#7C3AED',
+                            light: '#F5F3FF',
+                        },
+                        secondary: '#6B7280',
+                        light: '#F9FAFB',
+                        dark: '#1F2937',
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #F9FAFB;
+        }
+
+        html,
+        body {
+            height: 100%;
+            overflow: hidden;
+        }
+
+        #image-container {
+            position: relative;
+        }
+
+        #bbox-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            pointer-events: none;
+        }
+
+        .highlight-row {
+            background-color: #EDE9FE !important;
+            /* primary-light variant */
+        }
+
+        .group:hover .tooltip {
+            display: block;
+        }
+
+        .rotate-180 {
+            transform: rotate(180deg);
+        }
+
+        .transition-all {
+            transition: all 0.3s ease-in-out;
+        }
+
+        .nav-arrow {
+            position: absolute;
+            top: 50%;
+            transform: translateY(-50%);
+            background-color: rgba(0, 0, 0, 0.4);
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 44px;
+            height: 44px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: background-color 0.2s, transform 0.2s;
+            z-index: 10;
+        }
+
+        .nav-arrow:hover {
+            background-color: rgba(0, 0, 0, 0.7);
+            transform: translateY(-50%) scale(1.1);
+        }
+
+        .nav-arrow:disabled {
+            display: none;
+        }
+
+        /* Custom select style */
+        #class-filter {
+            -webkit-appearance: none;
+            -moz-appearance: none;
+            appearance: none;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' class='h-5 w-5' viewBox='0 0 20 20' fill='%236B7280'%3E%3Cpath fill-rule='evenodd' d='M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z' clip-rule='evenodd' /%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 0.75rem center;
+            background-size: 1.25em 1.25em;
+        }
+
+        /* Carousel scrollbar styling */
+        #carousel-track::-webkit-scrollbar {
+            height: 8px;
+        }
+
+        #carousel-track::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 10px;
+        }
+
+        #carousel-track::-webkit-scrollbar-thumb {
+            background: #d1d5db;
+            border-radius: 10px;
+        }
+
+        #carousel-track::-webkit-scrollbar-thumb:hover {
+            background: #9ca3af;
+        }
+    </style>
+</head>
+
+<body class="h-full">
+
+    <div class="flex flex-col lg:flex-row h-full w-full">
+
+        <!-- Left Column: Image and Controls -->
+        <div class="w-full lg:w-3/5 flex flex-col p-8 bg-white">
+
+            <!-- Controls Wrapper -->
+            <div class="flex-shrink-0">
+                <div class="flex justify-between items-center mb-6">
+                    <div class="flex items-center gap-4">
+                        <label for="image-upload"
+                            class="inline-flex items-center bg-primary-light text-primary-dark font-semibold py-2 px-5 border border-primary/20 rounded-xl shadow-sm hover:bg-primary/20 cursor-pointer transition-all">
+                            <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                                xmlns="http://www.w3.org/2000/svg">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path>
+                            </svg>
+                            <span>Upload Image(s)</span>
+                        </label>
+                        <input type="file" id="image-upload" accept="image/*" class="hidden" multiple>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <button id="detect-current-button"
+                            class="bg-white text-primary border border-primary font-bold py-2 px-5 rounded-xl hover:bg-primary-light focus:outline-none focus:ring-4 focus:ring-primary/30 transition-all duration-300 disabled:bg-gray-300 disabled:text-gray-500 disabled:border-gray-300 disabled:cursor-not-allowed">
+                            Process Current
+                        </button>
+                        <button id="detect-all-button"
+                            class="bg-primary text-white font-bold py-2 px-5 rounded-xl hover:bg-primary-hover focus:outline-none focus:ring-4 focus:ring-primary/30 transition-all duration-300 disabled:bg-gray-300 disabled:cursor-not-allowed shadow-lg shadow-primary/20 hover:shadow-primary/40">
+                            Process All
+                        </button>
+                    </div>
+                </div>
+
+                <div id="toolbar" class="mb-4 p-2 bg-light rounded-xl flex items-center gap-2 border border-gray-200">
+                    <div class="relative group flex justify-center">
+                        <button id="show-results-btn"
+                            class="p-2 rounded-full hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-secondary" fill="none"
+                                viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                <path stroke-linecap="round" stroke-linejoin="round"
+                                    d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                <path stroke-linecap="round" stroke-linejoin="round"
+                                    d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                            </svg>
+                        </button>
+                        <span id="show-results-tooltip"
+                            class="tooltip absolute bottom-full mb-2 w-max hidden bg-dark text-white text-xs rounded-md py-1 px-2">Hide
+                            Boxes</span>
+                    </div>
+                    <div class="relative group flex justify-center">
+                        <button id="show-labels-btn"
+                            class="p-2 rounded-full hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-secondary" fill="none"
+                                viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                <path stroke-linecap="round" stroke-linejoin="round"
+                                    d="M16 4v12l-4-2-4 2V4M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                            </svg>
+                        </button>
+                        <span id="show-labels-tooltip"
+                            class="tooltip absolute bottom-full mb-2 w-max hidden bg-dark text-white text-xs rounded-md py-1 px-2">Hide
+                            Labels</span>
+                    </div>
+                    <div class="relative group flex justify-center">
+                        <button id="download-btn"
+                            class="p-2 rounded-full hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-secondary" fill="none"
+                                viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                <path stroke-linecap="round" stroke-linejoin="round"
+                                    d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                            </svg>
+                        </button>
+                        <span id="download-tooltip"
+                            class="tooltip absolute bottom-full mb-2 w-max hidden bg-dark text-white text-xs rounded-md py-1 px-2">Download</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Image Display & Progress -->
+            <div class="flex-grow relative flex flex-col justify-center items-center min-h-0">
+                <div id="image-container"
+                    class="relative w-full h-full flex items-center justify-center border-2 border-dashed border-gray-200 rounded-2xl bg-light">
+                    <img id="uploaded-image" src="" alt="Uploaded image"
+                        class="max-w-full max-h-full object-contain hidden rounded-lg">
+                    <canvas id="bbox-canvas" class="hidden"></canvas>
+                    <p id="placeholder-text" class="text-secondary">Upload image(s) to get started</p>
+
+                    <div id="loading-overlay"
+                        class="absolute inset-0 bg-white bg-opacity-75 flex items-center justify-center rounded-2xl hidden z-20 backdrop-blur-sm">
+                        <div class="flex flex-col items-center">
+                            <svg class="animate-spin h-10 w-10 text-primary" xmlns="http://www.w3.org/2000/svg"
+                                fill="none" viewBox="0 0 24 24">
+                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor"
+                                    stroke-width="4"></circle>
+                                <path class="opacity-75" fill="currentColor"
+                                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
+                                </path>
+                            </svg>
+                            <p class="mt-4 text-secondary font-medium">Processing...</p>
+                        </div>
+                    </div>
+
+
+                    <button id="prev-image-btn" class="nav-arrow left-4" disabled><svg class="w-6 h-6" fill="none"
+                            stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7">
+                            </path>
+                        </svg></button>
+                    <button id="next-image-btn" class="nav-arrow right-4" disabled><svg class="w-6 h-6" fill="none"
+                            stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7">
+                            </path>
+                        </svg></button>
+
+                    <div id="image-info-container" class="absolute top-3 right-3 hidden">
+                        <button id="info-icon"
+                            class="p-1.5 bg-black bg-opacity-40 rounded-full hover:bg-opacity-60 focus:outline-none transition-all">
+                            <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                                xmlns="http://www.w3.org/2000/svg">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                            </svg>
+                        </button>
+                        <div id="info-popover"
+                            class="absolute top-full right-0 mt-2 w-64 bg-white p-4 rounded-xl shadow-2xl text-sm text-secondary hidden z-10 border">
+                            <p class="font-bold text-dark mb-2">Image Information</p>
+                            <p><strong>File Name:</strong> <span id="info-file-name"></span></p>
+                            <p><strong>File Size:</strong> <span id="info-file-size"></span></p>
+                            <p><strong>Dimensions:</strong> <span id="info-dimensions"></span></p>
+                            <p><strong>Type:</strong> <span id="info-type"></span></p>
+                        </div>
+                    </div>
+                </div>
+                <div class="h-6"><!-- Placeholder for progress bar to prevent layout shift --></div>
+            </div>
+
+            <div id="image-name-bar" class="flex-shrink-0 text-center pt-2 h-8">
+                <span id="file-name" class="text-sm text-secondary"></span>
+            </div>
+
+            <!-- Carousel -->
+            <div id="carousel-container" class="flex-shrink-0 w-full h-24">
+                <div id="carousel-track"
+                    class="flex items-center gap-3 p-2 h-full overflow-x-auto bg-light border rounded-xl">
+                    <!-- Thumbnails will be injected here by JavaScript -->
+                </div>
+            </div>
+
+        </div>
+
+        <!-- Right Column: Results -->
+        <div id="results-column" class="w-full lg:w-2/5 flex flex-col p-8 space-y-6 bg-light overflow-y-auto">
+            <div class="bg-white border rounded-2xl shadow-sm flex flex-col overflow-hidden" style="max-height: 60vh;">
+                <div class="p-5 flex-shrink-0 border-b">
+                    <div class="flex justify-between items-center">
+                        <h3 class="font-bold text-lg text-dark">Detected Objects</h3>
+                        <button id="toggle-results-table" class="p-1">
+                            <svg class="w-6 h-6 text-gray-400 transition-transform rotate-180"
+                                xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"
+                                stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M19 9l-7 7-7-7" />
+                            </svg>
+                        </button>
+                    </div>
+                    <div id="filter-container" class="mt-3">
+                        <label for="class-filter" class="text-sm font-medium text-secondary mr-2">Filter by
+                            class:</label>
+                        <select id="class-filter"
+                            class="w-full p-2.5 pr-10 border border-gray-200 bg-light rounded-xl shadow-sm focus:ring-2 focus:ring-primary/50 focus:border-primary text-sm transition-all"></select>
+                    </div>
+                </div>
+                <div id="results-table-container" class="overflow-y-auto">
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <thead class="bg-light sticky top-0">
+                            <tr>
+                                <th scope="col"
+                                    class="px-6 py-3 text-left text-xs font-bold text-secondary uppercase tracking-wider w-16">
+                                    #</th>
+                                <th scope="col"
+                                    class="px-6 py-3 text-left text-xs font-bold text-secondary uppercase tracking-wider">
+                                    Class</th>
+                            </tr>
+                        </thead>
+                        <tbody id="results-table-body" class="bg-white divide-y divide-gray-200">
+                            <!-- Rows will be inserted here -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="bg-white rounded-2xl shadow-sm border flex-shrink-0">
+                <button id="toggle-summary" class="w-full flex justify-between items-center p-5">
+                    <h3 class="font-bold text-lg text-dark">Summary</h3>
+                    <svg class="w-6 h-6 text-gray-400 transition-transform rotate-180"
+                        xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                    </svg>
+                </button>
+                <div id="summary-container-content" class="px-5 pb-5 pt-0 space-y-5">
+                    <div id="detection-summary-section">
+                        <h4 class="font-semibold text-md text-dark mb-2">Inference Summary</h4>
+                        <div id="detection-summary-content">
+                            <p class="text-sm text-secondary">No summary yet.</p>
+                        </div>
+                    </div>
+                    <div id="model-summary-section" class="border-t pt-4">
+                        <h4 class="font-semibold text-md text-dark mb-2">Model Summary</h4>
+                        <div id="model-summary-content">
+                            <p class="text-sm text-secondary">No summary yet.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- DOM Element References ---
+        const imageUpload = document.getElementById('image-upload');
+        const fileNameSpan = document.getElementById('file-name');
+        const uploadedImage = document.getElementById('uploaded-image');
+        const imageContainer = document.getElementById('image-container');
+        const bboxCanvas = document.getElementById('bbox-canvas');
+        const detectAllBtn = document.getElementById('detect-all-button');
+        const detectCurrentBtn = document.getElementById('detect-current-button');
+        const placeholderText = document.getElementById('placeholder-text');
+        const loadingOverlay = document.getElementById('loading-overlay');
+        const toolbar = document.getElementById('toolbar');
+        const showResultsBtn = document.getElementById('show-results-btn');
+        const showLabelsBtn = document.getElementById('show-labels-btn');
+        const downloadBtn = document.getElementById('download-btn');
+        const showResultsTooltip = document.getElementById('show-results-tooltip');
+        const showLabelsTooltip = document.getElementById('show-labels-tooltip');
+        const detectionSummaryContent = document.getElementById('detection-summary-content');
+        const modelSummaryContent = document.getElementById('model-summary-content');
+        const resultsTableBody = document.getElementById('results-table-body');
+        const carouselTrack = document.getElementById('carousel-track');
+
+        // Image Info Elements
+        const imageInfoContainer = document.getElementById('image-info-container');
+        const infoIcon = document.getElementById('info-icon');
+        const infoPopover = document.getElementById('info-popover');
+        const infoFileName = document.getElementById('info-file-name');
+        const infoFileSize = document.getElementById('info-file-size');
+        const infoDimensions = document.getElementById('info-dimensions');
+        const infoType = document.getElementById('info-type');
+
+        // Navigation
+        const prevImageBtn = document.getElementById('prev-image-btn');
+        const nextImageBtn = document.getElementById('next-image-btn');
+
+        // Collapsible section elements
+        const toggleSummaryBtn = document.getElementById('toggle-summary');
+        const summaryContainerContent = document.getElementById('summary-container-content');
+        const toggleResultsTableBtn = document.getElementById('toggle-results-table');
+        const resultsTableContainer = document.getElementById('results-table-container');
+        const filterContainer = document.getElementById('filter-container');
+        const classFilter = document.getElementById('class-filter');
+
+        // --- State Management ---
+        const backendUrl = 'http://localhost:8000/predict';
+        let imageList = [];
+        let modelInfo = null;
+        let currentImageIndex = -1;
+        let uiState = {
+            showBoxes: true,
+            showLabels: true,
+            highlightedIndex: -1,
+            filterClass: 'all'
+        };
+
+        // --- Event Listeners ---
+        imageUpload.addEventListener('change', (event) => {
+            const newFiles = Array.from(event.target.files);
+            if (newFiles.length === 0) return;
+
+            const wasEmpty = imageList.length === 0;
+
+            const newImages = newFiles.map(file => ({
+                file: file,
+                src: URL.createObjectURL(file),
+                metadata: {
+                    name: file.name,
+                    size: file.size,
+                    type: file.type,
+                },
+                detectionResults: null
+            }));
+
+            imageList.push(...newImages);
+
+            if (wasEmpty) {
+                currentImageIndex = 0;
+                displayImage(0);
+            }
+
+            renderCarousel();
+            updateNavButtons();
+            updateFileNameSpan();
+        });
+
+        detectAllBtn.addEventListener('click', () => handleDetection('all'));
+        detectCurrentBtn.addEventListener('click', () => handleDetection('current'));
+        showResultsBtn.addEventListener('click', toggleResultsVisibility);
+        showLabelsBtn.addEventListener('click', toggleLabelsVisibility);
+        downloadBtn.addEventListener('click', downloadImage);
+
+        imageContainer.addEventListener('mousemove', handleCanvasMouseMove);
+        imageContainer.addEventListener('mouseleave', () => {
+            if (uiState.highlightedIndex !== -1) {
+                uiState.highlightedIndex = -1;
+                redrawCanvas();
+                clearTableHighlights();
+            }
+        });
+        window.addEventListener('resize', () => {
+            if (imageList.length > 0) {
+                requestAnimationFrame(redrawCanvas);
+            }
+        });
+
+        // Navigation listeners
+        prevImageBtn.addEventListener('click', () => {
+            if (currentImageIndex > 0) {
+                currentImageIndex--;
+                displayImage(currentImageIndex);
+            }
+        });
+        nextImageBtn.addEventListener('click', () => {
+            if (currentImageIndex < imageList.length - 1) {
+                currentImageIndex++;
+                displayImage(currentImageIndex);
+            }
+        });
+
+        // Collapsible section listeners
+        toggleSummaryBtn.addEventListener('click', () => {
+            const content = summaryContainerContent;
+            const icon = toggleSummaryBtn.querySelector('svg');
+            content.classList.toggle('hidden');
+            icon.classList.toggle('rotate-180');
+        });
+
+        toggleResultsTableBtn.addEventListener('click', () => {
+            const icon = toggleResultsTableBtn.querySelector('svg');
+            resultsTableContainer.classList.toggle('hidden');
+            filterContainer.classList.toggle('hidden');
+            icon.classList.toggle('rotate-180');
+        });
+
+        // Image Info Popover Listener
+        infoIcon.addEventListener('click', (e) => {
+            e.stopPropagation();
+            infoPopover.classList.toggle('hidden');
+        });
+        document.addEventListener('click', (e) => {
+            if (!infoPopover.classList.contains('hidden') && !infoPopover.contains(e.target) && e.target !== infoIcon) {
+                infoPopover.classList.add('hidden');
+            }
+        });
+
+        // Class filter listener
+        classFilter.addEventListener('change', (e) => {
+            uiState.filterClass = e.target.value;
+            populateResultsTable();
+            redrawCanvas();
+        });
+
+
+        // --- Core Functions ---
+        function displayImage(index) {
+            if (index < 0 || index >= imageList.length) return;
+
+            const currentImage = imageList[index];
+            uploadedImage.src = currentImage.src;
+
+            uploadedImage.onload = () => {
+                if (!currentImage.metadata.width) {
+                    currentImage.metadata.width = uploadedImage.naturalWidth;
+                    currentImage.metadata.height = uploadedImage.naturalHeight;
+                }
+
+                populateImageInfo();
+                imageInfoContainer.classList.remove('hidden');
+                uploadedImage.classList.remove('hidden');
+                placeholderText.classList.add('hidden');
+                imageContainer.className = 'relative w-full h-full flex items-center justify-center bg-light rounded-2xl';
+                bboxCanvas.classList.remove('hidden');
+                detectAllBtn.disabled = false;
+                detectCurrentBtn.disabled = false;
+
+                if (currentImage.detectionResults) {
+                    uiState.filterClass = 'all';
+                    populateClassFilter();
+                    populateResultsTable();
+                    updateSummary();
+                } else {
+                    clearResults();
+                }
+                populateModelSummary();
+                updateNavButtons();
+                updateFileNameSpan();
+                renderCarousel();
+                requestAnimationFrame(redrawCanvas);
+            };
+        }
+
+        async function handleDetection(mode = 'all') {
+            const imagesToProcess = mode === 'current' ? [imageList[currentImageIndex]] : imageList;
+            if (imagesToProcess.length === 0) return;
+
+            detectAllBtn.disabled = true;
+            detectCurrentBtn.disabled = true;
+            loadingOverlay.classList.remove('hidden');
+
+            const base64Promises = imagesToProcess.map(img => {
+                return new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.readAsDataURL(img.file);
+                    reader.onload = () => resolve(reader.result.split(',')[1]);
+                    reader.onerror = error => reject(error);
+                });
+            });
+
+            try {
+                const base64Images = await Promise.all(base64Promises);
+
+                // Simulate network delay for demo purposes
+                await new Promise(resolve => setTimeout(resolve, 1500));
+
+                const response = await fetch(backendUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ base64_imgs: base64Images }),
+                });
+
+                if (!response.ok) throw new Error(`Server responded with status: ${response.status}`);
+
+                const data = await response.json();
+                if (!data.bounding_boxes || !data.classes || !data.model_info) {
+                    throw new Error('Invalid response format from server.');
+                }
+
+                if (mode === 'current') {
+                    const currentImage = imageList[currentImageIndex];
+                    currentImage.detectionResults = {
+                        boxes: data.bounding_boxes[0],
+                        classes: data.classes[0]
+                    };
+                } else {
+                    imageList.forEach((img, index) => {
+                        img.detectionResults = {
+                            boxes: data.bounding_boxes[index],
+                            classes: data.classes[index]
+                        };
+                    });
+                }
+
+                modelInfo = data.model_info;
+
+                displayImage(currentImageIndex);
+
+            } catch (error) {
+                console.error('Error during object detection:', error);
+                alert(`An error occurred: ${error.message}. Please check the console for details.`);
+            } finally {
+                loadingOverlay.classList.add('hidden');
+                detectAllBtn.disabled = false;
+                detectCurrentBtn.disabled = false;
+            }
+        }
+
+        function redrawCanvas() {
+            if (currentImageIndex === -1 || !uploadedImage.complete || !uploadedImage.naturalWidth) return;
+
+            const currentImage = imageList[currentImageIndex];
+            const detectionResults = currentImage.detectionResults;
+
+            const ctx = bboxCanvas.getContext('2d');
+
+            const containerRect = imageContainer.getBoundingClientRect();
+            bboxCanvas.width = containerRect.width;
+            bboxCanvas.height = containerRect.height;
+            ctx.clearRect(0, 0, bboxCanvas.width, bboxCanvas.height);
+
+            if (!uiState.showBoxes || !detectionResults || detectionResults.boxes.length === 0) return;
+
+            const imageRect = uploadedImage.getBoundingClientRect();
+
+            const renderedWidth = imageRect.width;
+            const renderedHeight = imageRect.height;
+            const offsetX = imageRect.left - containerRect.left;
+            const offsetY = imageRect.top - containerRect.top;
+
+            const scaleX = renderedWidth / uploadedImage.naturalWidth;
+            const scaleY = renderedHeight / uploadedImage.naturalHeight;
+            const colors = ['#f97316', '#3b82f6', '#10b981', '#ef4444', '#8b5cf6', '#eab308'];
+
+            const hexToRgba = (hex, alpha = 1) => {
+                const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+                if (!result) return `rgba(0,0,0,${alpha})`;
+                const r = parseInt(result[1], 16);
+                const g = parseInt(result[2], 16);
+                const b = parseInt(result[3], 16);
+                return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+            };
+
+            const hasHighlight = uiState.highlightedIndex !== -1;
+            const highlightedIndex = uiState.highlightedIndex;
+
+            // --- Pass 1: Draw all non-highlighted boxes (or all if no highlight) ---
+            detectionResults.boxes.forEach((box, i) => {
+                if (i === highlightedIndex) return; // Skip highlighted box for now
+
+                const className = detectionResults.classes[i];
+                if (uiState.filterClass !== 'all' && className !== uiState.filterClass) return;
+
+                const color = colors[i % colors.length];
+                const alpha = hasHighlight ? 0.25 : 1.0; // Fade if something else is highlighted
+
+                ctx.strokeStyle = hexToRgba(color, alpha);
+                ctx.lineWidth = 2.5;
+
+                const x = box.left * scaleX + offsetX;
+                const y = box.top * scaleY + offsetY;
+                const width = (box.right - box.left) * scaleX;
+                const height = (box.bottom - box.top) * scaleY;
+                ctx.strokeRect(x, y, width, height);
+
+                if (uiState.showLabels) {
+                    const label = className || 'unknown';
+                    ctx.font = 'bold 14px Inter';
+                    const textWidth = ctx.measureText(label).width;
+
+                    ctx.fillStyle = hexToRgba(color, hasHighlight ? 0.4 : 1.0);
+                    ctx.fillRect(x, y - 20, textWidth + 10, 20);
+                    ctx.fillStyle = hexToRgba('#FFFFFF', hasHighlight ? 0.7 : 1.0);
+                    ctx.fillText(label, x + 5, y - 5);
+                }
+            });
+
+            // --- Pass 2: Draw the highlighted box on top ---
+            if (hasHighlight) {
+                const i = highlightedIndex;
+                const box = detectionResults.boxes[i];
+                const className = detectionResults.classes[i];
+
+                if (uiState.filterClass === 'all' || className === uiState.filterClass) {
+                    const color = colors[i % colors.length];
+
+                    ctx.strokeStyle = color; // Full opacity
+                    ctx.lineWidth = 4; // Thicker line
+
+                    const x = box.left * scaleX + offsetX;
+                    const y = box.top * scaleY + offsetY;
+                    const width = (box.right - box.left) * scaleX;
+                    const height = (box.bottom - box.top) * scaleY;
+                    ctx.strokeRect(x, y, width, height);
+
+                    if (uiState.showLabels) {
+                        const label = className || 'unknown';
+                        ctx.fillStyle = color; // Full opacity
+                        ctx.font = 'bold 14px Inter';
+                        const textWidth = ctx.measureText(label).width;
+                        ctx.fillRect(x, y - 20, textWidth + 10, 20);
+                        ctx.fillStyle = '#FFFFFF'; // Full opacity
+                        ctx.fillText(label, x + 5, y - 5);
+                    }
+                }
+            }
+        }
+
+        // --- UI Update Functions ---
+        function populateImageInfo() {
+            const metadata = imageList[currentImageIndex].metadata;
+            infoFileName.textContent = metadata.name;
+            infoFileSize.textContent = `${(metadata.size / 1024).toFixed(2)} KB`;
+            infoDimensions.textContent = `${metadata.width} x ${metadata.height} px`;
+            infoType.textContent = metadata.type;
+        }
+
+        function populateClassFilter() {
+            const detectionResults = imageList[currentImageIndex]?.detectionResults;
+            classFilter.innerHTML = '<option value="all">All Classes</option>';
+            if (!detectionResults) return;
+
+            const uniqueClasses = [...new Set(detectionResults.classes)];
+            uniqueClasses.sort().forEach(className => {
+                const option = document.createElement('option');
+                option.value = className;
+                option.textContent = className;
+                classFilter.appendChild(option);
+            });
+        }
+
+        function populateResultsTable() {
+            const detectionResults = imageList[currentImageIndex]?.detectionResults;
+            resultsTableBody.innerHTML = '';
+            if (!detectionResults) return;
+
+            let displayIndex = 1;
+            detectionResults.classes.forEach((className, i) => {
+                if (uiState.filterClass !== 'all' && className !== uiState.filterClass) return;
+
+                const row = document.createElement('tr');
+                row.className = 'cursor-pointer hover:bg-primary-light transition-colors';
+                row.dataset.index = i;
+                row.innerHTML = `
+                    <td class="px-6 py-3 whitespace-nowrap text-sm font-medium text-dark">${displayIndex++}</td>
+                    <td class="px-6 py-3 whitespace-nowrap text-sm text-secondary">${className}</td>
+                `;
+                row.addEventListener('mouseenter', () => handleTableRowHover(i, true));
+                row.addEventListener('mouseleave', () => handleTableRowHover(i, false));
+                resultsTableBody.appendChild(row);
+            });
+        }
+
+        function updateSummary() {
+            const detectionResults = imageList[currentImageIndex]?.detectionResults;
+            if (!detectionResults || detectionResults.classes.length === 0) {
+                detectionSummaryContent.innerHTML = `<p class="text-sm text-secondary">No objects detected.</p>`;
+                return;
+            }
+            const total = detectionResults.classes.length;
+            const classCounts = detectionResults.classes.reduce((acc, val) => {
+                acc[val] = (acc[val] || 0) + 1;
+                return acc;
+            }, {});
+
+            let summaryHTML = `<p><strong>Total Objects:</strong> ${total}</p><ul class="list-disc list-inside mt-2 text-sm text-secondary space-y-1">`;
+            for (const [className, count] of Object.entries(classCounts).sort()) {
+                summaryHTML += `<li><span class="font-semibold text-dark">${className}:</span> ${count}</li>`;
+            }
+            summaryHTML += `</ul>`;
+            detectionSummaryContent.innerHTML = summaryHTML;
+        }
+
+        function populateModelSummary() {
+            if (!modelInfo) {
+                modelSummaryContent.innerHTML = `<p class="text-sm text-secondary">No summary yet.</p>`;
+                return;
+            }
+            const labelsHtml = modelInfo.labels.map(label => `<span class="inline-block bg-gray-100 rounded-full px-3 py-1 text-sm font-medium text-secondary mr-2 mb-2">${label}</span>`).join('');
+            modelSummaryContent.innerHTML = `
+                <div class="space-y-3 text-sm">
+                    <p><strong>Parameters:</strong> <span class="font-mono bg-primary-light text-primary-dark px-2 py-1 rounded-md">${modelInfo.parameters.toLocaleString()}</span></p>
+                    <p><strong>Layers:</strong> <span class="font-mono bg-primary-light text-primary-dark px-2 py-1 rounded-md">${modelInfo.layers.toLocaleString()}</span></p>
+                    <div>
+                        <p class="font-semibold text-dark mb-2">Trainable Labels (${modelInfo.labels.length}):</p>
+                        <div class="max-h-32 overflow-y-auto p-3 bg-light rounded-lg border">
+                            ${labelsHtml}
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function updateNavButtons() {
+            prevImageBtn.disabled = currentImageIndex <= 0;
+            nextImageBtn.disabled = currentImageIndex >= imageList.length - 1;
+        }
+
+        function updateFileNameSpan() {
+            if (currentImageIndex !== -1) {
+                const currentImage = imageList[currentImageIndex];
+                fileNameSpan.textContent = `${currentImage.metadata.name} (${currentImageIndex + 1}/${imageList.length})`;
+            } else {
+                fileNameSpan.textContent = '';
+            }
+        }
+
+        function renderCarousel() {
+            carouselTrack.innerHTML = '';
+            imageList.forEach((image, index) => {
+                const thumbWrapper = document.createElement('div');
+                thumbWrapper.className = `cursor-pointer rounded-lg border-2 p-1 transition-all flex-shrink-0 ${index === currentImageIndex ? 'border-primary' : 'border-transparent hover:border-primary/50'}`;
+                thumbWrapper.addEventListener('click', () => {
+                    currentImageIndex = index;
+                    displayImage(index);
+                });
+
+                const thumbImg = document.createElement('img');
+                thumbImg.src = image.src;
+                thumbImg.className = 'w-20 h-16 object-cover rounded-md';
+
+                thumbWrapper.appendChild(thumbImg);
+                carouselTrack.appendChild(thumbWrapper);
+            });
+        }
+
+        function clearResults() {
+            resultsTableBody.innerHTML = '';
+            detectionSummaryContent.innerHTML = '<p class="text-sm text-secondary">No summary yet.</p>';
+            classFilter.innerHTML = '<option value="all">All Classes</option>';
+            uiState.highlightedIndex = -1;
+            clearCanvas();
+        }
+
+        function resetUI() {
+            imageList.forEach(img => URL.revokeObjectURL(img.src));
+            imageList = [];
+            modelInfo = null;
+            currentImageIndex = -1;
+            uiState.filterClass = 'all';
+            clearResults();
+            populateModelSummary();
+            imageContainer.className = 'relative w-full h-full flex items-center justify-center border-2 border-dashed border-gray-200 rounded-2xl bg-light';
+            uploadedImage.src = '';
+            uploadedImage.classList.add('hidden');
+            placeholderText.classList.remove('hidden');
+            bboxCanvas.classList.add('hidden');
+            imageInfoContainer.classList.add('hidden');
+            infoPopover.classList.add('hidden');
+            detectAllBtn.disabled = true;
+            detectCurrentBtn.disabled = true;
+            fileNameSpan.textContent = '';
+            carouselTrack.innerHTML = '';
+            updateNavButtons();
+        }
+
+        // --- Interactivity Handlers ---
+        function handleTableRowHover(index, isHovering) {
+            uiState.highlightedIndex = isHovering ? index : -1;
+            redrawCanvas();
+        }
+
+        function handleCanvasMouseMove(event) {
+            if (!uiState.showBoxes || currentImageIndex === -1) return;
+            const detectionResults = imageList[currentImageIndex].detectionResults;
+            if (!detectionResults) return;
+
+            const canvasRect = bboxCanvas.getBoundingClientRect();
+            const imageRect = uploadedImage.getBoundingClientRect();
+
+            const renderedWidth = imageRect.width;
+            const renderedHeight = imageRect.height;
+            const offsetX = imageRect.left - canvasRect.left;
+            const offsetY = imageRect.top - canvasRect.top;
+
+            const scaleX = renderedWidth / uploadedImage.naturalWidth;
+            const scaleY = renderedHeight / uploadedImage.naturalHeight;
+            const mouseX = event.clientX - canvasRect.left;
+            const mouseY = event.clientY - canvasRect.top;
+
+            let foundIndex = -1;
+            for (let i = detectionResults.boxes.length - 1; i >= 0; i--) {
+                const className = detectionResults.classes[i];
+                if (uiState.filterClass !== 'all' && className !== uiState.filterClass) continue;
+
+                const box = detectionResults.boxes[i];
+                const x = box.left * scaleX + offsetX;
+                const y = box.top * scaleY + offsetY;
+                const width = (box.right - box.left) * scaleX;
+                const height = (box.bottom - top) * scaleY;
+
+                if (mouseX >= x && mouseX <= x + width && mouseY >= y && mouseY <= y + height) {
+                    foundIndex = i;
+                    break;
+                }
+            }
+
+            if (foundIndex !== uiState.highlightedIndex) {
+                uiState.highlightedIndex = foundIndex;
+                redrawCanvas();
+                highlightTableRow(foundIndex);
+            }
+        }
+
+        function highlightTableRow(index) {
+            clearTableHighlights();
+            if (index !== -1) {
+                const row = resultsTableBody.querySelector(`[data-index='${index}']`);
+                if (row) row.classList.add('highlight-row');
+            }
+        }
+
+        function clearTableHighlights() {
+            document.querySelectorAll('#results-table-body tr').forEach(r => r.classList.remove('highlight-row'));
+        }
+
+        function clearCanvas() {
+            const ctx = bboxCanvas.getContext('2d');
+            ctx.clearRect(0, 0, bboxCanvas.width, bboxCanvas.height);
+        }
+
+        // --- Toolbar Actions ---
+        function toggleResultsVisibility() {
+            uiState.showBoxes = !uiState.showBoxes;
+            showResultsTooltip.textContent = uiState.showBoxes ? 'Hide Boxes' : 'Show Boxes';
+            redrawCanvas();
+        }
+
+        function toggleLabelsVisibility() {
+            uiState.showLabels = !uiState.showLabels;
+            showLabelsTooltip.textContent = uiState.showLabels ? 'Hide Labels' : 'Show Labels';
+            redrawCanvas();
+        }
+
+        function downloadImage() {
+            if (currentImageIndex === -1) return;
+            const currentImage = imageList[currentImageIndex];
+            const detectionResults = currentImage.detectionResults;
+
+            const tempCanvas = document.createElement('canvas');
+            const tempCtx = tempCanvas.getContext('2d');
+            tempCanvas.width = uploadedImage.naturalWidth;
+            tempCanvas.height = uploadedImage.naturalHeight;
+            tempCtx.drawImage(uploadedImage, 0, 0);
+
+            if (uiState.showBoxes && detectionResults) {
+                const colors = ['#f97316', '#3b82f6', '#10b981', '#ef4444', '#8b5cf6', '#eab308'];
+                detectionResults.boxes.forEach((box, i) => {
+                    const color = colors[i % colors.length];
+                    tempCtx.strokeStyle = color;
+                    tempCtx.lineWidth = 5;
+                    const x = box.left;
+                    const y = box.top;
+                    const width = box.right - box.left;
+                    const height = box.bottom - box.top;
+                    tempCtx.strokeRect(x, y, width, height);
+
+                    if (uiState.showLabels) {
+                        const className = detectionResults.classes[i] || 'unknown';
+                        tempCtx.fillStyle = color;
+                        tempCtx.font = 'bold 24px Inter';
+                        const textWidth = tempCtx.measureText(className).width;
+                        tempCtx.fillRect(x, y - 30, textWidth + 10, 30);
+                        tempCtx.fillStyle = '#FFFFFF';
+                        tempCtx.fillText(className, x + 5, y - 5);
+                    }
+                });
+            }
+
+            const link = document.createElement('a');
+            link.download = `detection-${currentImage.metadata.name}`;
+            link.href = tempCanvas.toDataURL('image/png');
+            link.click();
+        }
+    </script>
+</body>
+
+</html>

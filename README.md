@@ -1,0 +1,36 @@
+# Vision Toolkit
+
+Tools for Computer Vision experiments.
+
+## YOLO11
+
+Inference service serving Ultralytics' [YOLO11](https://docs.ultralytics.com/models/yolo11/) model built with Docker.
+
+## Run
+
+Place the saved model in ./data folder. You can use the provided script to download YOLO11. Modify the URL in the script if you want to use different yolo models.
+
+```bash
+./get_yolo_model.sh # this will download the file in ./data directory
+```
+
+Build Docker image.
+
+```bash
+# Build the image. Needs to be in the current directory.
+docker build -t yolo11 -f models/yolo11/Dockerfile .
+
+# You can override the task by passing in BUILD_DIR_NAME. Default is object detection.
+docker build --build-arg YOLO_TASK="object_detection" -t yolo11 -f models/yolo11/Dockerfile.
+```
+
+Run Docker container.
+
+```bash
+# Frontend client will be running on http://localhost:8080. The default will build object detection docker image.
+docker run --rm -v ./data:/app/data --name yolo11 -p 8080:5000 yolo11
+
+# You can override the model task and saved model file name using environment variable like so:
+# Note: the backend will search for saved model file in ./data directory.
+docker run --rm -v ./data:/app/data --name yolo11 -p 8080:5000 -e YOLO_TASK=object_detect -e SAVED_MODEL=yolo_model.pt yolo11
+```
