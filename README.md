@@ -8,7 +8,8 @@ Inference service serving Ultralytics' [YOLO11](https://docs.ultralytics.com/mod
 
 You can check out the frontend clients via the links below. Note that this is just the frontend app and not connected to any backend.
 
-- <https://hsuanhauliu.github.io/vision-toolkit/object_detection>
+- https://hsuanhauliu.github.io/vision-toolkit/object_detection
+- https://hsuanhauliu.github.io/vision-toolkit/instance_segmentation
 
 ## Run
 
