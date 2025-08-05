@@ -18,9 +18,7 @@ LABELS = [name for _, name in MODEL.names.items()]
 
 
 ###### Helper Functions ######
-def to_lists(
-    model_results, class_names
-) -> Tuple[List[List[rpc.Coordinate]], List[List[str]]]:
+def detection_results_to_lists(model_results, class_names):
     """
     Convert the model inference results to a list of bounding boxes and a list of corresponding class names.
     """
@@ -36,9 +34,33 @@ def to_lists(
     return all_bb, all_classes
 
 
+def segmentation_results_to_lists(model_results, class_names):
+    all_polygons, all_classes = [], []
+    for result in model_results:
+        masks, classes = [], []
+        for i, mask in enumerate(result.masks):
+            classes.append(class_names[int(result.boxes.cls[i])])
+            masks.append(convert.maskToPolygon(mask))
+        all_polygons.append(masks)
+        all_classes.append(classes)
+    return all_polygons, all_classes
+
+
+def get_model_info() -> dict:
+    model_info = MODEL.info(detailed=False, verbose=True)
+    model_layers = model_info[0] if model_info and len(model_info) > 1 else None
+    model_parameters = model_info[1] if model_info and len(model_info) > 1 else None
+    return {
+        "labels": LABELS,
+        "layers": model_layers,
+        "parameters": model_parameters,
+    }
+
+
 def get_inference_func(task_name: str) -> Callable:
     inference_task = {
         "object_detection": object_detection,
+        "instance_segmentation": instance_segmentation,
     }
 
     if task_name not in inference_task:
@@ -49,6 +71,7 @@ def get_inference_func(task_name: str) -> Callable:
 def get_response_model(task_name: str) -> Callable:
     response_model = {
         "object_detection": rpc.ObjectDetectionResponse,
+        "instance_segmentation": rpc.InstanceSegmentationResponse,
     }
 
     if task_name not in response_model:
@@ -57,28 +80,28 @@ def get_response_model(task_name: str) -> Callable:
 
 
 ########## Inference functions ##########
-def object_detection(data: rpc.ObjectDetectionRequest) -> dict[str, Union[int, str]]:
+def object_detection(data: rpc.ObjectDetectionRequest):
     imgs = convert.base64ListToNumpyArrayList(data.base64_imgs)
     results = MODEL(imgs)
-    bb, classes = to_lists(results, MODEL.names)
-
-    model_info = MODEL.info(detailed=False, verbose=True)
-    model_layers = model_info[0] if model_info and len(model_info) > 1 else None
-    model_parameters = model_info[1] if model_info and len(model_info) > 1 else None
+    bb, classes = detection_results_to_lists(results, MODEL.names)
 
     return {
         "bounding_boxes": bb,
         "classes": classes,
-        "model_info": {
-            "labels": LABELS,
-            "layers": model_layers,
-            "parameters": model_parameters,
-        },
+        "model_info": get_model_info(),
     }
 
 
-def image_segmentation():
-    return
+def instance_segmentation(data: rpc.InstanceSegmentationRequest):
+    imgs = convert.base64ListToNumpyArrayList(data.base64_imgs)
+    results = MODEL(imgs)
+    polygons, classes = segmentation_results_to_lists(results, MODEL.names)
+
+    return {
+        "polygons": polygons,
+        "classes": classes,
+        "model_info": get_model_info(),
+    }
 
 
 def image_classification():

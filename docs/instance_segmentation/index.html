@@ -1,0 +1,908 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Image Segmentation</title>
+    <!-- Tailwind CSS for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts: Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: {
+                            DEFAULT: '#10B981', // Green
+                            hover: '#059669',
+                            light: '#ECFDF5',
+                        },
+                        secondary: '#6B7280',
+                        light: '#F9FAFB',
+                        dark: '#1F2937',
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #F9FAFB;
+        }
+
+        html,
+        body {
+            height: 100%;
+            overflow: hidden;
+        }
+
+        #image-container {
+            position: relative;
+        }
+
+        #mask-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            pointer-events: none;
+        }
+
+        .highlight-row {
+            background-color: #ECFDF5 !important;
+            /* primary-light variant */
+        }
+
+        .group:hover .tooltip {
+            display: block;
+        }
+
+        .rotate-180 {
+            transform: rotate(180deg);
+        }
+
+        .transition-all {
+            transition: all 0.3s ease-in-out;
+        }
+
+        .nav-arrow {
+            position: absolute;
+            top: 50%;
+            transform: translateY(-50%);
+            background-color: rgba(0, 0, 0, 0.4);
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 44px;
+            height: 44px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: background-color 0.2s, transform 0.2s;
+            z-index: 10;
+        }
+
+        .nav-arrow:hover {
+            background-color: rgba(0, 0, 0, 0.7);
+            transform: translateY(-50%) scale(1.1);
+        }
+
+        .nav-arrow:disabled {
+            display: none;
+        }
+
+        /* Custom select style */
+        #class-filter {
+            -webkit-appearance: none;
+            -moz-appearance: none;
+            appearance: none;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' class='h-5 w-5' viewBox='0 0 20 20' fill='%236B7280'%3E%3Cpath fill-rule='evenodd' d='M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z' clip-rule='evenodd' /%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 0.75rem center;
+            background-size: 1.25em 1.25em;
+        }
+
+        /* Carousel scrollbar styling */
+        #carousel-track::-webkit-scrollbar {
+            height: 8px;
+        }
+
+        #carousel-track::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 10px;
+        }
+
+        #carousel-track::-webkit-scrollbar-thumb {
+            background: #d1d5db;
+            border-radius: 10px;
+        }
+
+        #carousel-track::-webkit-scrollbar-thumb:hover {
+            background: #9ca3af;
+        }
+    </style>
+</head>
+
+<body class="h-full">
+
+    <div class="flex flex-col lg:flex-row h-full w-full">
+
+        <!-- Left Column: Image and Controls -->
+        <div class="w-full lg:w-3/5 flex flex-col p-8 bg-white">
+
+            <!-- Controls Wrapper -->
+            <div class="flex-shrink-0">
+                <div class="flex justify-between items-center mb-6">
+                    <div class="flex items-center gap-4">
+                        <label for="image-upload"
+                            class="inline-flex items-center bg-primary-light text-primary-dark font-semibold py-2 px-5 border border-primary/20 rounded-xl shadow-sm hover:bg-primary/20 cursor-pointer transition-all">
+                            <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                                xmlns="http://www.w3.org/2000/svg">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path>
+                            </svg>
+                            <span>Upload Image(s)</span>
+                        </label>
+                        <input type="file" id="image-upload" accept="image/*" class="hidden" multiple>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <button id="segment-current-button"
+                            class="bg-white text-primary border border-primary font-bold py-2 px-5 rounded-xl hover:bg-primary-light focus:outline-none focus:ring-4 focus:ring-primary/30 transition-all duration-300 disabled:bg-gray-300 disabled:text-gray-500 disabled:border-gray-300 disabled:cursor-not-allowed">
+                            Process Current
+                        </button>
+                        <button id="segment-all-button"
+                            class="bg-primary text-white font-bold py-2 px-5 rounded-xl hover:bg-primary-hover focus:outline-none focus:ring-4 focus:ring-primary/30 transition-all duration-300 disabled:bg-gray-300 disabled:cursor-not-allowed shadow-lg shadow-primary/20 hover:shadow-primary/40">
+                            Process All
+                        </button>
+                    </div>
+                </div>
+
+                <div id="toolbar" class="mb-4 p-2 bg-light rounded-xl flex items-center gap-2 border border-gray-200">
+                    <div class="relative group flex justify-center">
+                        <button id="show-masks-btn"
+                            class="p-2 rounded-full hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-secondary" fill="none"
+                                viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                <path stroke-linecap="round" stroke-linejoin="round"
+                                    d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                <path stroke-linecap="round" stroke-linejoin="round"
+                                    d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                            </svg>
+                        </button>
+                        <span id="show-masks-tooltip"
+                            class="tooltip absolute bottom-full mb-2 w-max hidden bg-dark text-white text-xs rounded-md py-1 px-2">Hide
+                            Masks</span>
+                    </div>
+                    <div class="relative group flex justify-center">
+                        <label for="opacity-slider" class="p-2 text-secondary flex items-center">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M9.663 17h4.673M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
+                            </svg>
+                        </label>
+                        <input type="range" id="opacity-slider" min="0" max="1" step="0.1" value="0.6" class="w-24 cursor-pointer">
+                    </div>
+                    <div class="relative group flex justify-center">
+                        <button id="download-btn"
+                            class="p-2 rounded-full hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-secondary" fill="none"
+                                viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                <path stroke-linecap="round" stroke-linejoin="round"
+                                    d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                            </svg>
+                        </button>
+                        <span id="download-tooltip"
+                            class="tooltip absolute bottom-full mb-2 w-max hidden bg-dark text-white text-xs rounded-md py-1 px-2">Download</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Image Display -->
+            <div class="flex-grow relative flex flex-col justify-center items-center min-h-0">
+                <div id="image-container"
+                    class="relative w-full h-full flex items-center justify-center border-2 border-dashed border-gray-200 rounded-2xl bg-light">
+                    <img id="uploaded-image" src="" alt="Uploaded image"
+                        class="max-w-full max-h-full object-contain hidden rounded-lg">
+                    <canvas id="mask-canvas" class="hidden"></canvas>
+                    <p id="placeholder-text" class="text-secondary">Upload image(s) to get started</p>
+                    
+                    <div id="loading-overlay" class="absolute inset-0 bg-white bg-opacity-75 flex items-center justify-center rounded-2xl hidden z-20 backdrop-blur-sm">
+                        <div class="flex flex-col items-center">
+                            <svg class="animate-spin h-10 w-10 text-primary" xmlns="http://www.w3.org/2000/svg" fill="none"
+                                viewBox="0 0 24 24">
+                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                <path class="opacity-75" fill="currentColor"
+                                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
+                                </path>
+                            </svg>
+                            <p class="mt-4 text-secondary font-medium">Processing...</p>
+                        </div>
+                    </div>
+
+                    <button id="prev-image-btn" class="nav-arrow left-4" disabled><svg class="w-6 h-6" fill="none"
+                            stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7">
+                            </path>
+                        </svg></button>
+                    <button id="next-image-btn" class="nav-arrow right-4" disabled><svg class="w-6 h-6" fill="none"
+                            stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7">
+                            </path>
+                        </svg></button>
+
+                    <div id="image-info-container" class="absolute top-3 right-3 hidden">
+                        <button id="info-icon"
+                            class="p-1.5 bg-black bg-opacity-40 rounded-full hover:bg-opacity-60 focus:outline-none transition-all">
+                            <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                                xmlns="http://www.w3.org/2000/svg">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                            </svg>
+                        </button>
+                        <div id="info-popover"
+                            class="absolute top-full right-0 mt-2 w-64 bg-white p-4 rounded-xl shadow-2xl text-sm text-secondary hidden z-10 border">
+                            <p class="font-bold text-dark mb-2">Image Information</p>
+                            <p><strong>File Name:</strong> <span id="info-file-name"></span></p>
+                            <p><strong>File Size:</strong> <span id="info-file-size"></span></p>
+                            <p><strong>Dimensions:</strong> <span id="info-dimensions"></span></p>
+                            <p><strong>Type:</strong> <span id="info-type"></span></p>
+                        </div>
+                    </div>
+                </div>
+                 <div class="h-6"><!-- Placeholder to prevent layout shift --></div>
+            </div>
+
+            <div id="image-name-bar" class="flex-shrink-0 text-center pt-2 h-8">
+                <span id="file-name" class="text-sm text-secondary"></span>
+            </div>
+
+            <!-- Carousel -->
+            <div id="carousel-container" class="flex-shrink-0 w-full h-24">
+                <div id="carousel-track"
+                    class="flex items-center gap-3 p-2 h-full overflow-x-auto bg-light border rounded-xl">
+                    <!-- Thumbnails will be injected here -->
+                </div>
+            </div>
+
+        </div>
+
+        <!-- Right Column: Results -->
+        <div id="results-column" class="w-full lg:w-2/5 flex flex-col p-8 space-y-6 bg-light overflow-y-auto">
+            <div class="bg-white border rounded-2xl shadow-sm flex flex-col overflow-hidden" style="max-height: 60vh;">
+                <div class="p-5 flex-shrink-0 border-b">
+                    <div class="flex justify-between items-center">
+                        <h3 class="font-bold text-lg text-dark">Segmented Objects</h3>
+                        <button id="toggle-results-table" class="p-1">
+                            <svg class="w-6 h-6 text-gray-400 transition-transform rotate-180"
+                                xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"
+                                stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M19 9l-7 7-7-7" />
+                            </svg>
+                        </button>
+                    </div>
+                    <div id="filter-container" class="mt-3">
+                        <label for="class-filter" class="text-sm font-medium text-secondary mr-2">Filter by
+                            class:</label>
+                        <select id="class-filter"
+                            class="w-full p-2.5 pr-10 border border-gray-200 bg-light rounded-xl shadow-sm focus:ring-2 focus:ring-primary/50 focus:border-primary text-sm transition-all"></select>
+                    </div>
+                </div>
+                <div id="results-table-container" class="overflow-y-auto">
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <thead class="bg-light sticky top-0">
+                            <tr>
+                                <th scope="col"
+                                    class="px-6 py-3 text-left text-xs font-bold text-secondary uppercase tracking-wider w-16">
+                                    Color</th>
+                                <th scope="col"
+                                    class="px-6 py-3 text-left text-xs font-bold text-secondary uppercase tracking-wider">
+                                    Class</th>
+                            </tr>
+                        </thead>
+                        <tbody id="results-table-body" class="bg-white divide-y divide-gray-200">
+                            <!-- Rows will be inserted here -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="bg-white rounded-2xl shadow-sm border flex-shrink-0">
+                <button id="toggle-summary" class="w-full flex justify-between items-center p-5">
+                    <h3 class="font-bold text-lg text-dark">Summary</h3>
+                    <svg class="w-6 h-6 text-gray-400 transition-transform rotate-180"
+                        xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                    </svg>
+                </button>
+                <div id="summary-container-content" class="px-5 pb-5 pt-0 space-y-5">
+                    <div id="segmentation-summary-section">
+                        <h4 class="font-semibold text-md text-dark mb-2">Inference Summary</h4>
+                        <div id="segmentation-summary-content">
+                            <p class="text-sm text-secondary">No summary yet.</p>
+                        </div>
+                    </div>
+                    <div id="model-summary-section" class="border-t pt-4">
+                        <h4 class="font-semibold text-md text-dark mb-2">Model Summary</h4>
+                        <div id="model-summary-content">
+                            <p class="text-sm text-secondary">No summary yet.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- DOM Element References ---
+        const imageUpload = document.getElementById('image-upload');
+        const fileNameSpan = document.getElementById('file-name');
+        const uploadedImage = document.getElementById('uploaded-image');
+        const imageContainer = document.getElementById('image-container');
+        const maskCanvas = document.getElementById('mask-canvas');
+        const segmentAllBtn = document.getElementById('segment-all-button');
+        const segmentCurrentBtn = document.getElementById('segment-current-button');
+        const placeholderText = document.getElementById('placeholder-text');
+        const loadingOverlay = document.getElementById('loading-overlay');
+        const toolbar = document.getElementById('toolbar');
+        const showMasksBtn = document.getElementById('show-masks-btn');
+        const opacitySlider = document.getElementById('opacity-slider');
+        const downloadBtn = document.getElementById('download-btn');
+        const showMasksTooltip = document.getElementById('show-masks-tooltip');
+        const segmentationSummaryContent = document.getElementById('segmentation-summary-content');
+        const modelSummaryContent = document.getElementById('model-summary-content');
+        const resultsTableBody = document.getElementById('results-table-body');
+        const carouselTrack = document.getElementById('carousel-track');
+
+        // Image Info Elements
+        const imageInfoContainer = document.getElementById('image-info-container');
+        const infoIcon = document.getElementById('info-icon');
+        const infoPopover = document.getElementById('info-popover');
+        const infoFileName = document.getElementById('info-file-name');
+        const infoFileSize = document.getElementById('info-file-size');
+        const infoDimensions = document.getElementById('info-dimensions');
+        const infoType = document.getElementById('info-type');
+
+        // Navigation
+        const prevImageBtn = document.getElementById('prev-image-btn');
+        const nextImageBtn = document.getElementById('next-image-btn');
+
+        // Collapsible section elements
+        const toggleSummaryBtn = document.getElementById('toggle-summary');
+        const summaryContainerContent = document.getElementById('summary-container-content');
+        const toggleResultsTableBtn = document.getElementById('toggle-results-table');
+        const resultsTableContainer = document.getElementById('results-table-container');
+        const filterContainer = document.getElementById('filter-container');
+        const classFilter = document.getElementById('class-filter');
+
+        // --- State Management ---
+        const backendUrl = 'http://localhost:8000/predict';
+        let imageList = [];
+        let modelInfo = null;
+        let currentImageIndex = -1;
+        let uiState = {
+            showMasks: true,
+            maskOpacity: 0.6,
+            highlightedIndex: -1,
+            filterClass: 'all'
+        };
+        const colors = ['#f97316', '#3b82f6', '#10b981', '#ef4444', '#8b5cf6', '#eab308', '#6366f1', '#ec4899'];
+
+        // --- Event Listeners ---
+        imageUpload.addEventListener('change', (event) => {
+            const newFiles = Array.from(event.target.files);
+            if (newFiles.length === 0) return;
+
+            const wasEmpty = imageList.length === 0;
+
+            const newImages = newFiles.map(file => ({
+                file: file,
+                src: URL.createObjectURL(file),
+                metadata: { name: file.name, size: file.size, type: file.type },
+                segmentationResults: null
+            }));
+
+            imageList.push(...newImages);
+
+            if (wasEmpty) {
+                currentImageIndex = 0;
+                displayImage(0);
+            }
+
+            renderCarousel();
+            updateNavButtons();
+            updateFileNameSpan();
+        });
+
+        segmentAllBtn.addEventListener('click', () => handleSegmentation('all'));
+        segmentCurrentBtn.addEventListener('click', () => handleSegmentation('current'));
+        showMasksBtn.addEventListener('click', toggleMasksVisibility);
+        opacitySlider.addEventListener('input', (e) => {
+            uiState.maskOpacity = parseFloat(e.target.value);
+            redrawMasks();
+        });
+        downloadBtn.addEventListener('click', downloadImage);
+
+        imageContainer.addEventListener('mousemove', handleCanvasMouseMove);
+        imageContainer.addEventListener('mouseleave', () => {
+            if (uiState.highlightedIndex !== -1) {
+                uiState.highlightedIndex = -1;
+                redrawMasks();
+                clearTableHighlights();
+            }
+        });
+        window.addEventListener('resize', () => {
+            if (imageList.length > 0) {
+                requestAnimationFrame(redrawMasks);
+            }
+        });
+
+        // Navigation listeners
+        prevImageBtn.addEventListener('click', () => {
+            if (currentImageIndex > 0) {
+                currentImageIndex--;
+                displayImage(currentImageIndex);
+            }
+        });
+        nextImageBtn.addEventListener('click', () => {
+            if (currentImageIndex < imageList.length - 1) {
+                currentImageIndex++;
+                displayImage(currentImageIndex);
+            }
+        });
+        
+        toggleSummaryBtn.addEventListener('click', () => {
+            summaryContainerContent.classList.toggle('hidden');
+            toggleSummaryBtn.querySelector('svg').classList.toggle('rotate-180');
+        });
+
+        toggleResultsTableBtn.addEventListener('click', () => {
+            const icon = toggleResultsTableBtn.querySelector('svg');
+            resultsTableContainer.classList.toggle('hidden');
+            filterContainer.classList.toggle('hidden');
+            icon.classList.toggle('rotate-180');
+        });
+
+        infoIcon.addEventListener('click', (e) => {
+            e.stopPropagation();
+            infoPopover.classList.toggle('hidden');
+        });
+        
+        document.addEventListener('click', (e) => {
+            if (!infoPopover.classList.contains('hidden') && !infoPopover.contains(e.target) && e.target !== infoIcon) {
+                infoPopover.classList.add('hidden');
+            }
+        });
+
+        classFilter.addEventListener('change', (e) => {
+            uiState.filterClass = e.target.value;
+            populateResultsTable();
+            redrawMasks();
+        });
+
+
+        // --- Core Functions ---
+        function displayImage(index) {
+            if (index < 0 || index >= imageList.length) return;
+
+            const currentImage = imageList[index];
+            uploadedImage.src = currentImage.src;
+
+            uploadedImage.onload = () => {
+                if (!currentImage.metadata.width) {
+                    currentImage.metadata.width = uploadedImage.naturalWidth;
+                    currentImage.metadata.height = uploadedImage.naturalHeight;
+                }
+                populateImageInfo();
+                imageInfoContainer.classList.remove('hidden');
+                uploadedImage.classList.remove('hidden');
+                placeholderText.classList.add('hidden');
+                imageContainer.className = 'relative w-full h-full flex items-center justify-center bg-light rounded-2xl';
+                maskCanvas.classList.remove('hidden');
+                segmentAllBtn.disabled = false;
+                segmentCurrentBtn.disabled = false;
+
+                if (currentImage.segmentationResults) {
+                    uiState.filterClass = 'all';
+                    populateClassFilter();
+                    populateResultsTable();
+                    updateSummary();
+                    redrawMasks();
+                } else {
+                    clearResults();
+                }
+                populateModelSummary();
+                updateNavButtons();
+                updateFileNameSpan();
+                renderCarousel();
+            };
+        }
+
+        async function handleSegmentation(mode = 'all') {
+            const imagesToProcess = mode === 'current' ? [imageList[currentImageIndex]] : imageList.filter(img => !img.segmentationResults);
+            if (imagesToProcess.length === 0) return;
+
+            segmentAllBtn.disabled = true;
+            segmentCurrentBtn.disabled = true;
+            loadingOverlay.classList.remove('hidden');
+
+            const base64Promises = imagesToProcess.map(img => {
+                return new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.readAsDataURL(img.file);
+                    reader.onload = () => resolve(reader.result.split(',')[1]);
+                    reader.onerror = error => reject(error);
+                });
+            });
+
+            try {
+                const base64Images = await Promise.all(base64Promises);
+                
+                const response = await fetch(backendUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ base64_imgs: base64Images }),
+                });
+
+                if (!response.ok) {
+                    throw new Error(`Server responded with status: ${response.status}`);
+                }
+
+                const data = await response.json();
+
+                if (!data.polygons || !data.classes || !data.model_info) {
+                    throw new Error('Invalid response format from server.');
+                }
+                
+                const processResults = (img, polygons, classes) => {
+                    // This function is now more robust to handle different nesting levels.
+                    const safePolygons = (Array.isArray(polygons) && polygons.length > 0 && Array.isArray(polygons[0])) ? polygons[0] : (Array.isArray(polygons) ? polygons : []);
+                    const safeClasses = (Array.isArray(classes) && classes.length > 0 && Array.isArray(classes[0])) ? classes[0] : (Array.isArray(classes) ? classes : []);
+
+                    img.segmentationResults = {
+                        polygons: safePolygons,
+                        classes: safeClasses
+                    };
+                };
+                
+                const imagesToUpdate = mode === 'current' ? [imageList[currentImageIndex]] : imageList.filter(img => !img.segmentationResults);
+                imagesToUpdate.forEach((img, index) => {
+                    const resultIndex = mode === 'current' ? 0 : index;
+                    processResults(img, data.polygons[resultIndex], data.classes[resultIndex]);
+                });
+
+                modelInfo = data.model_info;
+                displayImage(currentImageIndex);
+
+            } catch (error) {
+                console.error('Error during image segmentation:', error);
+                alert(`An error occurred: ${error.message}. Please check the console for details.`);
+            } finally {
+                loadingOverlay.classList.add('hidden');
+                segmentAllBtn.disabled = false;
+                segmentCurrentBtn.disabled = false;
+            }
+        }
+        
+        function redrawMasks() {
+            if (currentImageIndex === -1 || !uploadedImage.complete || !uploadedImage.naturalWidth) return;
+            
+            const currentImage = imageList[currentImageIndex];
+            const segmentationResults = currentImage.segmentationResults;
+            const maskCtx = maskCanvas.getContext('2d');
+            
+            const containerRect = imageContainer.getBoundingClientRect();
+            maskCanvas.width = containerRect.width;
+            maskCanvas.height = containerRect.height;
+            maskCtx.clearRect(0, 0, maskCanvas.width, maskCanvas.height);
+
+            if (!uiState.showMasks || !segmentationResults || !segmentationResults.polygons) return;
+
+            const imageRect = uploadedImage.getBoundingClientRect();
+            const scaleX = imageRect.width / uploadedImage.naturalWidth;
+            const scaleY = imageRect.height / uploadedImage.naturalHeight;
+            const offsetX = imageRect.left - containerRect.left;
+            const offsetY = imageRect.top - containerRect.top;
+            
+            const hasHighlight = uiState.highlightedIndex !== -1;
+            const polygonsToDraw = [...segmentationResults.polygons];
+
+            // If there's a highlight, move it to the end of the array to draw it last
+            if (hasHighlight && uiState.highlightedIndex < polygonsToDraw.length) {
+                const highlightedPolygon = polygonsToDraw.splice(uiState.highlightedIndex, 1)[0];
+                polygonsToDraw.push(highlightedPolygon);
+            }
+
+            polygonsToDraw.forEach((polygon, i) => {
+                // Determine the original index to get the correct class and color
+                let originalIndex = segmentationResults.polygons.indexOf(polygon);
+                
+                const contour = polygon.contour;
+                if (!contour || contour.length === 0) return;
+
+                const className = segmentationResults.classes[originalIndex];
+                if (uiState.filterClass !== 'all' && className !== uiState.filterClass) return;
+                
+                const color = colors[originalIndex % colors.length];
+                const isHighlighted = (originalIndex === uiState.highlightedIndex);
+
+                // --- Draw Fill ---
+                maskCtx.fillStyle = color;
+                maskCtx.globalAlpha = isHighlighted ? 0.8 : (hasHighlight ? 0.2 : uiState.maskOpacity);
+                
+                maskCtx.beginPath();
+                const firstPoint = contour[0];
+                maskCtx.moveTo(firstPoint.x * scaleX + offsetX, firstPoint.y * scaleY + offsetY);
+
+                for (let j = 1; j < contour.length; j++) {
+                    const point = contour[j];
+                    maskCtx.lineTo(point.x * scaleX + offsetX, point.y * scaleY + offsetY);
+                }
+                maskCtx.closePath();
+                maskCtx.fill();
+
+                // --- Draw Stroke for Highlight ---
+                if (isHighlighted) {
+                    maskCtx.globalAlpha = 1.0;
+                    maskCtx.strokeStyle = 'white';
+                    maskCtx.lineWidth = 2.5;
+                    maskCtx.stroke();
+                }
+            });
+            maskCtx.globalAlpha = 1.0;
+        }
+
+        // --- UI Update Functions ---
+        function populateImageInfo() {
+            const metadata = imageList[currentImageIndex].metadata;
+            infoFileName.textContent = metadata.name;
+            infoFileSize.textContent = `${(metadata.size / 1024).toFixed(2)} KB`;
+            infoDimensions.textContent = `${metadata.width} x ${metadata.height} px`;
+            infoType.textContent = metadata.type;
+        }
+
+        function populateClassFilter() {
+            const segmentationResults = imageList[currentImageIndex]?.segmentationResults;
+            classFilter.innerHTML = '<option value="all">All Classes</option>';
+            if (!segmentationResults || !segmentationResults.classes) return;
+
+            const uniqueClasses = [...new Set(segmentationResults.classes)];
+            uniqueClasses.sort().forEach(className => {
+                const option = document.createElement('option');
+                option.value = className;
+                option.textContent = className;
+                classFilter.appendChild(option);
+            });
+        }
+
+        function populateResultsTable() {
+            const segmentationResults = imageList[currentImageIndex]?.segmentationResults;
+            resultsTableBody.innerHTML = '';
+            if (!segmentationResults || !segmentationResults.polygons) return;
+
+            segmentationResults.polygons.forEach((polygon, i) => {
+                const className = segmentationResults.classes[i];
+                if (uiState.filterClass !== 'all' && className !== uiState.filterClass) return;
+
+                const row = document.createElement('tr');
+                row.className = 'cursor-pointer hover:bg-primary-light transition-colors';
+                row.dataset.index = i;
+                const color = colors[i % colors.length];
+
+                row.innerHTML = `
+                    <td class="px-6 py-3"><div class="w-4 h-4 rounded-full" style="background-color: ${color};"></div></td>
+                    <td class="px-6 py-3 whitespace-nowrap text-sm text-secondary">${className}</td>
+                `;
+                row.addEventListener('mouseenter', () => handleTableRowHover(i, true));
+                row.addEventListener('mouseleave', () => handleTableRowHover(i, false));
+                resultsTableBody.appendChild(row);
+            });
+        }
+
+        function updateSummary() {
+            const segmentationResults = imageList[currentImageIndex]?.segmentationResults;
+            if (!segmentationResults || !segmentationResults.classes || !Array.isArray(segmentationResults.classes) || segmentationResults.classes.length === 0) {
+                segmentationSummaryContent.innerHTML = `<p class="text-sm text-secondary">No objects segmented.</p>`;
+                return;
+            }
+            const total = segmentationResults.classes.length;
+            const classCounts = segmentationResults.classes.reduce((acc, val) => {
+                acc[val] = (acc[val] || 0) + 1;
+                return acc;
+            }, {});
+
+            let summaryHTML = `<p><strong>Total Objects:</strong> ${total}</p><ul class="list-disc list-inside mt-2 text-sm text-secondary space-y-1">`;
+            for (const [className, count] of Object.entries(classCounts).sort()) {
+                summaryHTML += `<li><span class="font-semibold text-dark">${className}:</span> ${count}</li>`;
+            }
+            summaryHTML += `</ul>`;
+            segmentationSummaryContent.innerHTML = summaryHTML;
+        }
+
+        function populateModelSummary() {
+            if (!modelInfo) {
+                modelSummaryContent.innerHTML = `<p class="text-sm text-secondary">No summary yet.</p>`;
+                return;
+            }
+            const labelsHtml = modelInfo.labels.map(label => `<span class="inline-block bg-gray-100 rounded-full px-3 py-1 text-sm font-medium text-secondary mr-2 mb-2">${label}</span>`).join('');
+            modelSummaryContent.innerHTML = `
+                <div class="space-y-3 text-sm">
+                    <p><strong>Parameters:</strong> <span class="font-mono bg-primary-light text-primary-dark px-2 py-1 rounded-md">${modelInfo.parameters.toLocaleString()}</span></p>
+                    <p><strong>Layers:</strong> <span class="font-mono bg-primary-light text-primary-dark px-2 py-1 rounded-md">${modelInfo.layers.toLocaleString()}</span></p>
+                    <div>
+                        <p class="font-semibold text-dark mb-2">Trainable Labels (${modelInfo.labels.length}):</p>
+                        <div class="max-h-32 overflow-y-auto p-3 bg-light rounded-lg border">
+                            ${labelsHtml}
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function updateNavButtons() {
+            prevImageBtn.disabled = currentImageIndex <= 0;
+            nextImageBtn.disabled = currentImageIndex >= imageList.length - 1;
+        }
+
+        function updateFileNameSpan() {
+            if (currentImageIndex !== -1) {
+                const currentImage = imageList[currentImageIndex];
+                fileNameSpan.textContent = `${currentImage.metadata.name} (${currentImageIndex + 1}/${imageList.length})`;
+            } else {
+                fileNameSpan.textContent = '';
+            }
+        }
+
+        function renderCarousel() {
+            carouselTrack.innerHTML = '';
+            imageList.forEach((image, index) => {
+                const thumbWrapper = document.createElement('div');
+                thumbWrapper.className = `cursor-pointer rounded-lg border-2 p-1 transition-all flex-shrink-0 ${index === currentImageIndex ? 'border-primary' : 'border-transparent hover:border-primary/50'}`;
+                thumbWrapper.addEventListener('click', () => {
+                    currentImageIndex = index;
+                    displayImage(index);
+                });
+
+                const thumbImg = document.createElement('img');
+                thumbImg.src = image.src;
+                thumbImg.className = 'w-20 h-16 object-cover rounded-md';
+
+                thumbWrapper.appendChild(thumbImg);
+                carouselTrack.appendChild(thumbWrapper);
+            });
+        }
+
+        function clearResults() {
+            resultsTableBody.innerHTML = '';
+            segmentationSummaryContent.innerHTML = '<p class="text-sm text-secondary">No summary yet.</p>';
+            classFilter.innerHTML = '<option value="all">All Classes</option>';
+            uiState.highlightedIndex = -1;
+            clearCanvas();
+        }
+        
+        function clearCanvas() {
+            const ctx = maskCanvas.getContext('2d');
+            ctx.clearRect(0, 0, maskCanvas.width, maskCanvas.height);
+        }
+
+        // --- Interactivity Handlers ---
+        function handleTableRowHover(index, isHovering) {
+            uiState.highlightedIndex = isHovering ? index : -1;
+            redrawMasks();
+        }
+
+        function handleCanvasMouseMove(event) {
+            if (!uiState.showMasks || currentImageIndex === -1) return;
+            const currentImage = imageList[currentImageIndex];
+            const segmentationResults = currentImage.segmentationResults;
+            if (!segmentationResults || !segmentationResults.polygons) return;
+
+            const canvasRect = maskCanvas.getBoundingClientRect();
+            const mouseX = event.clientX - canvasRect.left;
+            const mouseY = event.clientY - canvasRect.top;
+
+            const imageRect = uploadedImage.getBoundingClientRect();
+            const scaleX = imageRect.width / uploadedImage.naturalWidth;
+            const scaleY = imageRect.height / uploadedImage.naturalHeight;
+            const offsetX = imageRect.left - canvasRect.left;
+            const offsetY = imageRect.top - canvasRect.top;
+
+            const tempCtx = document.createElement('canvas').getContext('2d');
+            let foundIndex = -1;
+            
+            for (let i = segmentationResults.polygons.length - 1; i >= 0; i--) {
+                const polygon = segmentationResults.polygons[i];
+                const contour = polygon.contour;
+                if (!contour) continue;
+
+                const className = segmentationResults.classes[i];
+                if (uiState.filterClass !== 'all' && className !== uiState.filterClass) continue;
+
+                tempCtx.beginPath();
+                const firstPoint = contour[0];
+                tempCtx.moveTo(firstPoint.x * scaleX + offsetX, firstPoint.y * scaleY + offsetY);
+                for (let j = 1; j < contour.length; j++) {
+                    const point = contour[j];
+                    tempCtx.lineTo(point.x * scaleX + offsetX, point.y * scaleY + offsetY);
+                }
+                tempCtx.closePath();
+
+                if (tempCtx.isPointInPath(mouseX, mouseY)) {
+                    foundIndex = i;
+                    break; 
+                }
+            }
+
+            if (foundIndex !== uiState.highlightedIndex) {
+                uiState.highlightedIndex = foundIndex;
+                redrawMasks();
+                highlightTableRow(foundIndex);
+            }
+        }
+
+        function highlightTableRow(index) {
+            clearTableHighlights();
+            if (index !== -1) {
+                const row = resultsTableBody.querySelector(`[data-index='${index}']`);
+                if (row) row.classList.add('highlight-row');
+            }
+        }
+
+        function clearTableHighlights() {
+            document.querySelectorAll('#results-table-body tr').forEach(r => r.classList.remove('highlight-row'));
+        }
+
+        // --- Toolbar Actions ---
+        function toggleMasksVisibility() {
+            uiState.showMasks = !uiState.showMasks;
+            showMasksTooltip.textContent = uiState.showMasks ? 'Hide Masks' : 'Show Masks';
+            redrawMasks();
+        }
+
+        function downloadImage() {
+            if (currentImageIndex === -1) return;
+            const currentImage = imageList[currentImageIndex];
+            const segmentationResults = currentImage.segmentationResults;
+
+            const tempCanvas = document.createElement('canvas');
+            const tempCtx = tempCanvas.getContext('2d');
+            tempCanvas.width = uploadedImage.naturalWidth;
+            tempCanvas.height = uploadedImage.naturalHeight;
+            
+            tempCtx.drawImage(uploadedImage, 0, 0);
+
+            if (uiState.showMasks && segmentationResults && segmentationResults.polygons) {
+                tempCtx.globalAlpha = uiState.maskOpacity;
+                segmentationResults.polygons.forEach((polygon, i) => {
+                    const contour = polygon.contour;
+                    if (!contour) return;
+
+                    const color = colors[i % colors.length];
+                    tempCtx.fillStyle = color;
+                    
+                    tempCtx.beginPath();
+                    const firstPoint = contour[0];
+                    tempCtx.moveTo(firstPoint.x, firstPoint.y);
+                    for (let j = 1; j < contour.length; j++) {
+                        const point = contour[j];
+                        tempCtx.lineTo(point.x, point.y);
+                    }
+                    tempCtx.closePath();
+                    tempCtx.fill();
+                });
+                tempCtx.globalAlpha = 1.0;
+            }
+
+            const link = document.createElement('a');
+            link.download = `segmentation-${currentImage.metadata.name}`;
+            link.href = tempCanvas.toDataURL('image/png');
+            link.click();
+        }
+    </script>
+</body>
+
+</html>
