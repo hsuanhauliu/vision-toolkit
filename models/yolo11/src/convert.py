@@ -53,3 +53,28 @@ def maskToPolygon(mask) -> data.Polygon:
         elif coor[0] != points[-1].x or coor[1] != points[-1].y:
             points.append(data.Coordinate(x=coor[0], y=coor[1]))
     return data.Polygon(contour=points)
+
+
+def keypointsToHumanBodyKeypoints(keypoints):
+    keypoints = keypoints.xy[0]
+    keypoint_coordinates = [data.Coordinate(x=p[0], y=p[1]) for p in keypoints]
+
+    return data.HumanBodyKeypoints(
+        nose=keypoint_coordinates[0],
+        left_eye=keypoint_coordinates[1],
+        right_eye=keypoint_coordinates[2],
+        left_ear=keypoint_coordinates[3],
+        right_ear=keypoint_coordinates[4],
+        left_shoulder=keypoint_coordinates[5],
+        right_shoulder=keypoint_coordinates[6],
+        left_elbow=keypoint_coordinates[7],
+        right_elbow=keypoint_coordinates[8],
+        left_wrist=keypoint_coordinates[9],
+        right_wrist=keypoint_coordinates[10],
+        left_hip=keypoint_coordinates[11],
+        right_hip=keypoint_coordinates[12],
+        left_knee=keypoint_coordinates[13],
+        right_knee=keypoint_coordinates[14],
+        left_ankle=keypoint_coordinates[15],
+        right_ankle=keypoint_coordinates[16],
+    )

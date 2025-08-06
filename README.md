@@ -10,6 +10,7 @@ You can check out the frontend clients via the links below. Note that this is ju
 
 - https://hsuanhauliu.github.io/vision-toolkit/object_detection
 - https://hsuanhauliu.github.io/vision-toolkit/instance_segmentation
+- https://hsuanhauliu.github.io/vision-toolkit/pose_estimation
 
 ## Run
 

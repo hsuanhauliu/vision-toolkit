@@ -1,0 +1,897 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pose Estimation</title>
+    <!-- Tailwind CSS for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts: Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: {
+                            DEFAULT: '#3B82F6',
+                            hover: '#2563EB',
+                            light: '#EFF6FF',
+                        },
+                        secondary: '#6B7280',
+                        light: '#F9FAFB',
+                        dark: '#1F2937',
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #F9FAFB;
+        }
+
+        html,
+        body {
+            height: 100%;
+            overflow: hidden;
+        }
+
+        #image-container {
+            position: relative;
+        }
+
+        #pose-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            pointer-events: none;
+        }
+
+        .highlight-row {
+            background-color: #EFF6FF !important;
+            /* primary-light variant */
+        }
+
+        .group:hover .tooltip {
+            display: block;
+        }
+
+        .rotate-180 {
+            transform: rotate(180deg);
+        }
+
+        .transition-all {
+            transition: all 0.3s ease-in-out;
+        }
+
+        .nav-arrow {
+            position: absolute;
+            top: 50%;
+            transform: translateY(-50%);
+            background-color: rgba(0, 0, 0, 0.4);
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 44px;
+            height: 44px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: background-color 0.2s, transform 0.2s;
+            z-index: 10;
+        }
+
+        .nav-arrow:hover {
+            background-color: rgba(0, 0, 0, 0.7);
+            transform: translateY(-50%) scale(1.1);
+        }
+
+        .nav-arrow:disabled {
+            display: none;
+        }
+
+        /* Carousel scrollbar styling */
+        #carousel-track::-webkit-scrollbar {
+            height: 8px;
+        }
+
+        #carousel-track::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 10px;
+        }
+
+        #carousel-track::-webkit-scrollbar-thumb {
+            background: #d1d5db;
+            border-radius: 10px;
+        }
+
+        #carousel-track::-webkit-scrollbar-thumb:hover {
+            background: #9ca3af;
+        }
+
+        /* Custom slider thumb */
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 16px;
+            height: 16px;
+            background: #3B82F6;
+            cursor: pointer;
+            border-radius: 50%;
+            margin-top: -6px;
+            /* You need to specify a margin in Chrome, but in Firefox and IE it is automatic */
+        }
+
+        input[type=range]::-moz-range-thumb {
+            width: 16px;
+            height: 16px;
+            background: #3B82F6;
+            cursor: pointer;
+            border-radius: 50%;
+        }
+    </style>
+</head>
+
+<body class="h-full">
+
+    <div class="flex flex-col lg:flex-row h-full w-full">
+
+        <!-- Left Column: Image and Controls -->
+        <div class="w-full lg:w-3/5 flex flex-col p-8 bg-white">
+
+            <!-- Controls Wrapper -->
+            <div class="flex-shrink-0">
+                <div class="flex justify-between items-center mb-6">
+                    <div class="flex items-center gap-4">
+                        <label for="image-upload"
+                            class="inline-flex items-center bg-primary-light text-primary-dark font-semibold py-2 px-5 border border-primary/20 rounded-xl shadow-sm hover:bg-primary/20 cursor-pointer transition-all">
+                            <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                                xmlns="http://www.w3.org/2000/svg">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path>
+                            </svg>
+                            <span>Upload Image(s)</span>
+                        </label>
+                        <input type="file" id="image-upload" accept="image/*" class="hidden" multiple>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <button id="detect-current-button"
+                            class="bg-white text-primary border border-primary font-bold py-2 px-5 rounded-xl hover:bg-primary-light focus:outline-none focus:ring-4 focus:ring-primary/30 transition-all duration-300 disabled:bg-gray-300 disabled:text-gray-500 disabled:border-gray-300 disabled:cursor-not-allowed">
+                            Process Current
+                        </button>
+                        <button id="detect-all-button"
+                            class="bg-primary text-white font-bold py-2 px-5 rounded-xl hover:bg-primary-hover focus:outline-none focus:ring-4 focus:ring-primary/30 transition-all duration-300 disabled:bg-gray-300 disabled:cursor-not-allowed shadow-lg shadow-primary/20 hover:shadow-primary/40">
+                            Process All
+                        </button>
+                    </div>
+                </div>
+
+                <div id="toolbar"
+                    class="mb-4 p-3 bg-light rounded-xl flex flex-wrap items-center gap-x-6 gap-y-2 border border-gray-200">
+                    <div class="relative group flex justify-center">
+                        <button id="show-poses-btn"
+                            class="p-2 rounded-full hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-secondary" fill="none"
+                                viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                <path stroke-linecap="round" stroke-linejoin="round"
+                                    d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                <path stroke-linecap="round" stroke-linejoin="round"
+                                    d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                            </svg>
+                        </button>
+                        <span id="show-poses-tooltip"
+                            class="tooltip absolute bottom-full mb-2 w-max hidden bg-dark text-white text-xs rounded-md py-1 px-2">Hide
+                            Poses</span>
+                    </div>
+                    <div class="relative group flex justify-center">
+                        <button id="download-btn"
+                            class="p-2 rounded-full hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-secondary" fill="none"
+                                viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                <path stroke-linecap="round" stroke-linejoin="round"
+                                    d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                            </svg>
+                        </button>
+                        <span id="download-tooltip"
+                            class="tooltip absolute bottom-full mb-2 w-max hidden bg-dark text-white text-xs rounded-md py-1 px-2">Download</span>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <label for="line-width-slider" class="text-sm font-medium text-secondary">Lines:</label>
+                        <input type="range" id="line-width-slider" min="1" max="10"
+                            class="w-24 h-1 bg-gray-300 rounded-lg appearance-none cursor-pointer">
+                        <span id="line-width-value" class="text-sm font-mono text-secondary w-4 text-center"></span>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <label for="dot-size-slider" class="text-sm font-medium text-secondary">Dots:</label>
+                        <input type="range" id="dot-size-slider" min="1" max="10"
+                            class="w-24 h-1 bg-gray-300 rounded-lg appearance-none cursor-pointer">
+                        <span id="dot-size-value" class="text-sm font-mono text-secondary w-4 text-center"></span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Image Display & Progress -->
+            <div class="flex-grow relative flex flex-col justify-center items-center min-h-0">
+                <div id="image-container"
+                    class="relative w-full h-full flex items-center justify-center border-2 border-dashed border-gray-200 rounded-2xl bg-light">
+                    <img id="uploaded-image" src="" alt="Uploaded image"
+                        class="max-w-full max-h-full object-contain hidden rounded-lg">
+                    <canvas id="pose-canvas" class="hidden"></canvas>
+                    <p id="placeholder-text" class="text-secondary">Upload image(s) to get started</p>
+
+                    <div id="loading-overlay"
+                        class="absolute inset-0 bg-white bg-opacity-75 flex items-center justify-center rounded-2xl hidden z-20 backdrop-blur-sm">
+                        <div class="flex flex-col items-center">
+                            <svg class="animate-spin h-10 w-10 text-primary" xmlns="http://www.w3.org/2000/svg"
+                                fill="none" viewBox="0 0 24 24">
+                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor"
+                                    stroke-width="4"></circle>
+                                <path class="opacity-75" fill="currentColor"
+                                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
+                                </path>
+                            </svg>
+                            <p class="mt-4 text-secondary font-medium">Processing...</p>
+                        </div>
+                    </div>
+
+
+                    <button id="prev-image-btn" class="nav-arrow left-4" disabled><svg class="w-6 h-6" fill="none"
+                            stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7">
+                            </path>
+                        </svg></button>
+                    <button id="next-image-btn" class="nav-arrow right-4" disabled><svg class="w-6 h-6" fill="none"
+                            stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7">
+                            </path>
+                        </svg></button>
+
+                    <div id="image-info-container" class="absolute top-3 right-3 hidden">
+                        <button id="info-icon"
+                            class="p-1.5 bg-black bg-opacity-40 rounded-full hover:bg-opacity-60 focus:outline-none transition-all">
+                            <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                                xmlns="http://www.w3.org/2000/svg">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                            </svg>
+                        </button>
+                        <div id="info-popover"
+                            class="absolute top-full right-0 mt-2 w-64 bg-white p-4 rounded-xl shadow-2xl text-sm text-secondary hidden z-10 border">
+                            <p class="font-bold text-dark mb-2">Image Information</p>
+                            <p><strong>File Name:</strong> <span id="info-file-name"></span></p>
+                            <p><strong>File Size:</strong> <span id="info-file-size"></span></p>
+                            <p><strong>Dimensions:</strong> <span id="info-dimensions"></span></p>
+                            <p><strong>Type:</strong> <span id="info-type"></span></p>
+                        </div>
+                    </div>
+                </div>
+                <div class="h-6"><!-- Placeholder for progress bar to prevent layout shift --></div>
+            </div>
+
+            <div id="image-name-bar" class="flex-shrink-0 text-center pt-2 h-8">
+                <span id="file-name" class="text-sm text-secondary"></span>
+            </div>
+
+            <!-- Carousel -->
+            <div id="carousel-container" class="flex-shrink-0 w-full h-24">
+                <div id="carousel-track"
+                    class="flex items-center gap-3 p-2 h-full overflow-x-auto bg-light border rounded-xl">
+                    <!-- Thumbnails will be injected here by JavaScript -->
+                </div>
+            </div>
+
+        </div>
+
+        <!-- Right Column: Results -->
+        <div id="results-column" class="w-full lg:w-2/5 flex flex-col p-8 space-y-6 bg-light overflow-y-auto">
+            <div class="bg-white border rounded-2xl shadow-sm flex flex-col overflow-hidden" style="max-height: 60vh;">
+                <div class="p-5 flex-shrink-0 border-b">
+                    <div class="flex justify-between items-center">
+                        <h3 class="font-bold text-lg text-dark">Detected Persons</h3>
+                        <button id="toggle-results-table" class="p-1">
+                            <svg class="w-6 h-6 text-gray-400 transition-transform rotate-180"
+                                xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"
+                                stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M19 9l-7 7-7-7" />
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+                <div id="results-table-container" class="overflow-y-auto">
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <thead class="bg-light sticky top-0">
+                            <tr>
+                                <th scope="col"
+                                    class="px-6 py-3 text-left text-xs font-bold text-secondary uppercase tracking-wider">
+                                    Person</th>
+                            </tr>
+                        </thead>
+                        <tbody id="results-table-body" class="bg-white divide-y divide-gray-200">
+                            <!-- Rows will be inserted here -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="bg-white rounded-2xl shadow-sm border flex-shrink-0">
+                <button id="toggle-summary" class="w-full flex justify-between items-center p-5">
+                    <h3 class="font-bold text-lg text-dark">Summary</h3>
+                    <svg class="w-6 h-6 text-gray-400 transition-transform rotate-180"
+                        xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                    </svg>
+                </button>
+                <div id="summary-container-content" class="px-5 pb-5 pt-0 space-y-5">
+                    <div id="detection-summary-section">
+                        <h4 class="font-semibold text-md text-dark mb-2">Inference Summary</h4>
+                        <div id="detection-summary-content">
+                            <p class="text-sm text-secondary">No summary yet.</p>
+                        </div>
+                    </div>
+                    <div id="model-summary-section" class="border-t pt-4">
+                        <h4 class="font-semibold text-md text-dark mb-2">Model Summary</h4>
+                        <div id="model-summary-content">
+                            <p class="text-sm text-secondary">No summary yet.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- DOM Element References ---
+        const imageUpload = document.getElementById('image-upload');
+        const fileNameSpan = document.getElementById('file-name');
+        const uploadedImage = document.getElementById('uploaded-image');
+        const imageContainer = document.getElementById('image-container');
+        const poseCanvas = document.getElementById('pose-canvas');
+        const detectAllBtn = document.getElementById('detect-all-button');
+        const detectCurrentBtn = document.getElementById('detect-current-button');
+        const placeholderText = document.getElementById('placeholder-text');
+        const loadingOverlay = document.getElementById('loading-overlay');
+        const toolbar = document.getElementById('toolbar');
+        const showPosesBtn = document.getElementById('show-poses-btn');
+        const downloadBtn = document.getElementById('download-btn');
+        const showPosesTooltip = document.getElementById('show-poses-tooltip');
+        const detectionSummaryContent = document.getElementById('detection-summary-content');
+        const modelSummaryContent = document.getElementById('model-summary-content');
+        const resultsTableBody = document.getElementById('results-table-body');
+        const carouselTrack = document.getElementById('carousel-track');
+        const lineWidthSlider = document.getElementById('line-width-slider');
+        const lineWidthValue = document.getElementById('line-width-value');
+        const dotSizeSlider = document.getElementById('dot-size-slider');
+        const dotSizeValue = document.getElementById('dot-size-value');
+
+        // Image Info Elements
+        const imageInfoContainer = document.getElementById('image-info-container');
+        const infoIcon = document.getElementById('info-icon');
+        const infoPopover = document.getElementById('info-popover');
+        const infoFileName = document.getElementById('info-file-name');
+        const infoFileSize = document.getElementById('info-file-size');
+        const infoDimensions = document.getElementById('info-dimensions');
+        const infoType = document.getElementById('info-type');
+
+        // Navigation
+        const prevImageBtn = document.getElementById('prev-image-btn');
+        const nextImageBtn = document.getElementById('next-image-btn');
+
+        // Collapsible section elements
+        const toggleSummaryBtn = document.getElementById('toggle-summary');
+        const summaryContainerContent = document.getElementById('summary-container-content');
+        const toggleResultsTableBtn = document.getElementById('toggle-results-table');
+        const resultsTableContainer = document.getElementById('results-table-container');
+
+        // --- State Management ---
+        const backendUrl = 'http://localhost:8000/predict'; // This should point to your backend
+        let imageList = [];
+        let modelInfo = null;
+        let currentImageIndex = -1;
+        let uiState = {
+            showPoses: true,
+            highlightedIndex: -1,
+            lineWidth: 2,
+            dotSize: 2,
+        };
+
+        // Defines the connections for a COCO-style skeleton
+        const SKELETON = [
+            ['left_shoulder', 'right_shoulder'], ['left_hip', 'right_hip'],
+            ['left_shoulder', 'left_hip'], ['right_shoulder', 'right_hip'],
+            ['left_shoulder', 'left_elbow'], ['left_elbow', 'left_wrist'],
+            ['right_shoulder', 'right_elbow'], ['right_elbow', 'right_wrist'],
+            ['left_hip', 'left_knee'], ['left_knee', 'left_ankle'],
+            ['right_hip', 'right_knee'], ['right_knee', 'right_ankle'],
+            ['nose', 'left_eye'], ['nose', 'right_eye'],
+            ['left_eye', 'left_ear'], ['right_eye', 'right_ear']
+        ];
+
+        // --- Initial Setup ---
+        function initializeUI() {
+            lineWidthSlider.value = uiState.lineWidth;
+            lineWidthValue.textContent = uiState.lineWidth;
+            dotSizeSlider.value = uiState.dotSize;
+            dotSizeValue.textContent = uiState.dotSize;
+        }
+
+
+        // --- Event Listeners ---
+        imageUpload.addEventListener('change', (event) => {
+            const newFiles = Array.from(event.target.files);
+            if (newFiles.length === 0) return;
+
+            const wasEmpty = imageList.length === 0;
+
+            const newImages = newFiles.map(file => ({
+                file: file,
+                src: URL.createObjectURL(file),
+                metadata: { name: file.name, size: file.size, type: file.type },
+                detectionResults: null
+            }));
+
+            imageList.push(...newImages);
+
+            if (wasEmpty) {
+                currentImageIndex = 0;
+                displayImage(0);
+            }
+
+            renderCarousel();
+            updateNavButtons();
+            updateFileNameSpan();
+        });
+
+        detectAllBtn.addEventListener('click', () => handleDetection('all'));
+        detectCurrentBtn.addEventListener('click', () => handleDetection('current'));
+        showPosesBtn.addEventListener('click', togglePosesVisibility);
+        downloadBtn.addEventListener('click', downloadImage);
+
+        lineWidthSlider.addEventListener('input', (e) => {
+            const value = parseInt(e.target.value);
+            uiState.lineWidth = value;
+            lineWidthValue.textContent = value;
+            redrawCanvas();
+        });
+
+        dotSizeSlider.addEventListener('input', (e) => {
+            const value = parseInt(e.target.value);
+            uiState.dotSize = value;
+            dotSizeValue.textContent = value;
+            redrawCanvas();
+        });
+
+        imageContainer.addEventListener('mousemove', handleCanvasMouseMove);
+        imageContainer.addEventListener('mouseleave', () => {
+            if (uiState.highlightedIndex !== -1) {
+                uiState.highlightedIndex = -1;
+                redrawCanvas();
+                clearTableHighlights();
+            }
+        });
+        window.addEventListener('resize', () => {
+            if (imageList.length > 0) {
+                requestAnimationFrame(redrawCanvas);
+            }
+        });
+
+        // Navigation listeners
+        prevImageBtn.addEventListener('click', () => {
+            if (currentImageIndex > 0) {
+                currentImageIndex--;
+                displayImage(currentImageIndex);
+            }
+        });
+        nextImageBtn.addEventListener('click', () => {
+            if (currentImageIndex < imageList.length - 1) {
+                currentImageIndex++;
+                displayImage(currentImageIndex);
+            }
+        });
+
+        // Collapsible section listeners
+        toggleSummaryBtn.addEventListener('click', () => {
+            const content = summaryContainerContent;
+            const icon = toggleSummaryBtn.querySelector('svg');
+            content.classList.toggle('hidden');
+            icon.classList.toggle('rotate-180');
+        });
+
+        toggleResultsTableBtn.addEventListener('click', () => {
+            const icon = toggleResultsTableBtn.querySelector('svg');
+            resultsTableContainer.classList.toggle('hidden');
+            icon.classList.toggle('rotate-180');
+        });
+
+        // Image Info Popover Listener
+        infoIcon.addEventListener('click', (e) => {
+            e.stopPropagation();
+            infoPopover.classList.toggle('hidden');
+        });
+        document.addEventListener('click', (e) => {
+            if (!infoPopover.classList.contains('hidden') && !infoPopover.contains(e.target) && e.target !== infoIcon) {
+                infoPopover.classList.add('hidden');
+            }
+        });
+
+        // --- Core Functions ---
+        function displayImage(index) {
+            if (index < 0 || index >= imageList.length) return;
+
+            const currentImage = imageList[index];
+            uploadedImage.src = currentImage.src;
+
+            uploadedImage.onload = () => {
+                if (!currentImage.metadata.width) {
+                    currentImage.metadata.width = uploadedImage.naturalWidth;
+                    currentImage.metadata.height = uploadedImage.naturalHeight;
+                }
+
+                populateImageInfo();
+                imageInfoContainer.classList.remove('hidden');
+                uploadedImage.classList.remove('hidden');
+                placeholderText.classList.add('hidden');
+                imageContainer.className = 'relative w-full h-full flex items-center justify-center bg-light rounded-2xl';
+                poseCanvas.classList.remove('hidden');
+                detectAllBtn.disabled = false;
+                detectCurrentBtn.disabled = false;
+
+                if (currentImage.detectionResults) {
+                    populateResultsTable();
+                    updateSummary();
+                } else {
+                    clearResults();
+                }
+                populateModelSummary();
+                updateNavButtons();
+                updateFileNameSpan();
+                renderCarousel();
+                requestAnimationFrame(redrawCanvas);
+            };
+        }
+
+        async function handleDetection(mode = 'all') {
+            const imagesToProcess = mode === 'current' ? [imageList[currentImageIndex]] : imageList;
+            if (imagesToProcess.length === 0) return;
+
+            detectAllBtn.disabled = true;
+            detectCurrentBtn.disabled = true;
+            loadingOverlay.classList.remove('hidden');
+
+            const base64Promises = imagesToProcess.map(img => {
+                return new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.readAsDataURL(img.file);
+                    reader.onload = () => resolve(reader.result.split(',')[1]);
+                    reader.onerror = error => reject(error);
+                });
+            });
+
+            try {
+                const base64Images = await Promise.all(base64Promises);
+
+                // Simulate network delay
+                await new Promise(resolve => setTimeout(resolve, 1500));
+
+                const response = await fetch(backendUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ base64_imgs: base64Images }),
+                });
+
+                if (!response.ok) throw new Error(`Server responded with status: ${response.status}`);
+
+                const data = await response.json();
+                if (!data.keypoints || !data.model_info) {
+                    throw new Error('Invalid response format from server. Expected "keypoints" and "model_info".');
+                }
+
+                if (mode === 'current') {
+                    const currentImage = imageList[currentImageIndex];
+                    currentImage.detectionResults = { keypoints: data.keypoints[0] };
+                } else {
+                    imageList.forEach((img, index) => {
+                        img.detectionResults = { keypoints: data.keypoints[index] };
+                    });
+                }
+
+                modelInfo = data.model_info;
+                displayImage(currentImageIndex);
+
+            } catch (error) {
+                console.error('Error during pose estimation:', error);
+                alert(`An error occurred: ${error.message}. Please check the console for details.`);
+            } finally {
+                loadingOverlay.classList.add('hidden');
+                detectAllBtn.disabled = false;
+                detectCurrentBtn.disabled = false;
+            }
+        }
+
+        function redrawCanvas() {
+            if (currentImageIndex === -1 || !uploadedImage.complete || !uploadedImage.naturalWidth) return;
+
+            const currentImage = imageList[currentImageIndex];
+            const detectionResults = currentImage.detectionResults;
+            const ctx = poseCanvas.getContext('2d');
+
+            const containerRect = imageContainer.getBoundingClientRect();
+            poseCanvas.width = containerRect.width;
+            poseCanvas.height = containerRect.height;
+            ctx.clearRect(0, 0, poseCanvas.width, poseCanvas.height);
+
+            if (!uiState.showPoses || !detectionResults || !detectionResults.keypoints || detectionResults.keypoints.length === 0) return;
+
+            const imageRect = uploadedImage.getBoundingClientRect();
+            const scaleX = imageRect.width / uploadedImage.naturalWidth;
+            const scaleY = imageRect.height / uploadedImage.naturalHeight;
+            const offsetX = imageRect.left - containerRect.left;
+            const offsetY = imageRect.top - containerRect.top;
+
+            const colors = ['#f97316', '#3b82f6', '#10b981', '#ef4444', '#8b5cf6', '#eab308'];
+            const hasHighlight = uiState.highlightedIndex !== -1;
+
+            const drawPerson = (personKeypoints, color, alpha) => {
+                ctx.fillStyle = color;
+                ctx.strokeStyle = color;
+                ctx.globalAlpha = alpha;
+
+                // Draw skeleton
+                ctx.lineWidth = uiState.lineWidth;
+                SKELETON.forEach(bone => {
+                    const p1 = personKeypoints[bone[0]];
+                    const p2 = personKeypoints[bone[1]];
+                    if (p1 && p2) {
+                        ctx.beginPath();
+                        ctx.moveTo(p1.x * scaleX + offsetX, p1.y * scaleY + offsetY);
+                        ctx.lineTo(p2.x * scaleX + offsetX, p2.y * scaleY + offsetY);
+                        ctx.stroke();
+                    }
+                });
+
+                // Draw keypoints
+                Object.values(personKeypoints).forEach(kp => {
+                    ctx.beginPath();
+                    ctx.arc(kp.x * scaleX + offsetX, kp.y * scaleY + offsetY, uiState.dotSize, 0, 2 * Math.PI);
+                    ctx.fill();
+                });
+                ctx.globalAlpha = 1.0;
+            };
+
+            // Draw non-highlighted poses first
+            detectionResults.keypoints.forEach((person, i) => {
+                if (i === uiState.highlightedIndex) return;
+                const color = colors[i % colors.length];
+                drawPerson(person, color, hasHighlight ? 0.25 : 1.0);
+            });
+
+            // Draw highlighted pose on top
+            if (hasHighlight) {
+                const person = detectionResults.keypoints[uiState.highlightedIndex];
+                if (person) {
+                    const color = colors[uiState.highlightedIndex % colors.length];
+                    drawPerson(person, color, 1.0);
+                }
+            }
+        }
+
+        // --- UI Update Functions ---
+        function populateImageInfo() {
+            const metadata = imageList[currentImageIndex].metadata;
+            infoFileName.textContent = metadata.name;
+            infoFileSize.textContent = `${(metadata.size / 1024).toFixed(2)} KB`;
+            infoDimensions.textContent = `${metadata.width} x ${metadata.height} px`;
+            infoType.textContent = metadata.type;
+        }
+
+        function populateResultsTable() {
+            const detectionResults = imageList[currentImageIndex]?.detectionResults;
+            resultsTableBody.innerHTML = '';
+            if (!detectionResults || !detectionResults.keypoints) return;
+
+            detectionResults.keypoints.forEach((person, i) => {
+                const row = document.createElement('tr');
+                row.className = 'cursor-pointer hover:bg-primary-light transition-colors';
+                row.dataset.index = i;
+                row.innerHTML = `<td class="px-6 py-3 whitespace-nowrap text-sm text-secondary">Person ${i + 1}</td>`;
+                row.addEventListener('mouseenter', () => handleTableRowHover(i, true));
+                row.addEventListener('mouseleave', () => handleTableRowHover(i, false));
+                resultsTableBody.appendChild(row);
+            });
+        }
+
+        function updateSummary() {
+            const detectionResults = imageList[currentImageIndex]?.detectionResults;
+            if (!detectionResults || !detectionResults.keypoints || detectionResults.keypoints.length === 0) {
+                detectionSummaryContent.innerHTML = `<p class="text-sm text-secondary">No persons detected.</p>`;
+                return;
+            }
+            const total = detectionResults.keypoints.length;
+            detectionSummaryContent.innerHTML = `<p><strong>Total Persons Detected:</strong> ${total}</p>`;
+        }
+
+        function populateModelSummary() {
+            if (!modelInfo) {
+                modelSummaryContent.innerHTML = `<p class="text-sm text-secondary">No summary yet.</p>`;
+                return;
+            }
+            modelSummaryContent.innerHTML = `
+                <div class="space-y-3 text-sm">
+                    <p><strong>Parameters:</strong> <span class="font-mono bg-primary-light text-primary-dark px-2 py-1 rounded-md">${modelInfo.parameters.toLocaleString()}</span></p>
+                    <p><strong>Layers:</strong> <span class="font-mono bg-primary-light text-primary-dark px-2 py-1 rounded-md">${modelInfo.layers.toLocaleString()}</span></p>
+                </div>
+            `;
+        }
+
+        function updateNavButtons() {
+            prevImageBtn.disabled = currentImageIndex <= 0;
+            nextImageBtn.disabled = currentImageIndex >= imageList.length - 1;
+        }
+
+        function updateFileNameSpan() {
+            if (currentImageIndex !== -1) {
+                const currentImage = imageList[currentImageIndex];
+                fileNameSpan.textContent = `${currentImage.metadata.name} (${currentImageIndex + 1}/${imageList.length})`;
+            } else {
+                fileNameSpan.textContent = '';
+            }
+        }
+
+        function renderCarousel() {
+            carouselTrack.innerHTML = '';
+            imageList.forEach((image, index) => {
+                const thumbWrapper = document.createElement('div');
+                thumbWrapper.className = `cursor-pointer rounded-lg border-2 p-1 transition-all flex-shrink-0 ${index === currentImageIndex ? 'border-primary' : 'border-transparent hover:border-primary/50'}`;
+                thumbWrapper.addEventListener('click', () => {
+                    currentImageIndex = index;
+                    displayImage(index);
+                });
+
+                const thumbImg = document.createElement('img');
+                thumbImg.src = image.src;
+                thumbImg.className = 'w-20 h-16 object-cover rounded-md';
+
+                thumbWrapper.appendChild(thumbImg);
+                carouselTrack.appendChild(thumbWrapper);
+            });
+        }
+
+        function clearResults() {
+            resultsTableBody.innerHTML = '';
+            detectionSummaryContent.innerHTML = '<p class="text-sm text-secondary">No summary yet.</p>';
+            uiState.highlightedIndex = -1;
+            clearCanvas();
+        }
+
+        // --- Interactivity Handlers ---
+        function handleTableRowHover(index, isHovering) {
+            uiState.highlightedIndex = isHovering ? index : -1;
+            redrawCanvas();
+        }
+
+        function handleCanvasMouseMove(event) {
+            if (!uiState.showPoses || currentImageIndex === -1) return;
+            const detectionResults = imageList[currentImageIndex].detectionResults;
+            if (!detectionResults || !detectionResults.keypoints) return;
+
+            const canvasRect = poseCanvas.getBoundingClientRect();
+            const imageRect = uploadedImage.getBoundingClientRect();
+
+            const scaleX = imageRect.width / uploadedImage.naturalWidth;
+            const scaleY = imageRect.height / uploadedImage.naturalHeight;
+            const offsetX = imageRect.left - canvasRect.left;
+            const offsetY = imageRect.top - canvasRect.top;
+            const mouseX = event.clientX - canvasRect.left;
+            const mouseY = event.clientY - canvasRect.top;
+
+            let foundIndex = -1;
+
+            // Find which person is being hovered over by checking if the mouse is near any keypoint
+            for (let i = detectionResults.keypoints.length - 1; i >= 0; i--) {
+                const person = detectionResults.keypoints[i];
+                let isHoveringPerson = false;
+                for (const key in person) {
+                    const kp = person[key];
+                    const kx = kp.x * scaleX + offsetX;
+                    const ky = kp.y * scaleY + offsetY;
+                    const distance = Math.sqrt((mouseX - kx) ** 2 + (mouseY - ky) ** 2);
+                    if (distance < 10) { // 10px hover radius
+                        isHoveringPerson = true;
+                        break;
+                    }
+                }
+                if (isHoveringPerson) {
+                    foundIndex = i;
+                    break;
+                }
+            }
+
+            if (foundIndex !== uiState.highlightedIndex) {
+                uiState.highlightedIndex = foundIndex;
+                redrawCanvas();
+                highlightTableRow(foundIndex);
+            }
+        }
+
+        function highlightTableRow(index) {
+            clearTableHighlights();
+            if (index !== -1) {
+                const row = resultsTableBody.querySelector(`[data-index='${index}']`);
+                if (row) row.classList.add('highlight-row');
+            }
+        }
+
+        function clearTableHighlights() {
+            document.querySelectorAll('#results-table-body tr').forEach(r => r.classList.remove('highlight-row'));
+        }
+
+        function clearCanvas() {
+            const ctx = poseCanvas.getContext('2d');
+            ctx.clearRect(0, 0, poseCanvas.width, poseCanvas.height);
+        }
+
+        // --- Toolbar Actions ---
+        function togglePosesVisibility() {
+            uiState.showPoses = !uiState.showPoses;
+            showPosesTooltip.textContent = uiState.showPoses ? 'Hide Poses' : 'Show Poses';
+            redrawCanvas();
+        }
+
+        function downloadImage() {
+            if (currentImageIndex === -1) return;
+            const currentImage = imageList[currentImageIndex];
+            const detectionResults = currentImage.detectionResults;
+
+            const tempCanvas = document.createElement('canvas');
+            const tempCtx = tempCanvas.getContext('2d');
+            tempCanvas.width = uploadedImage.naturalWidth;
+            tempCanvas.height = uploadedImage.naturalHeight;
+            tempCtx.drawImage(uploadedImage, 0, 0);
+
+            if (uiState.showPoses && detectionResults && detectionResults.keypoints) {
+                const colors = ['#f97316', '#3b82f6', '#10b981', '#ef4444', '#8b5cf6', '#eab308'];
+
+                detectionResults.keypoints.forEach((person, i) => {
+                    const color = colors[i % colors.length];
+                    tempCtx.fillStyle = color;
+                    tempCtx.strokeStyle = color;
+
+                    // Draw skeleton
+                    tempCtx.lineWidth = uiState.lineWidth * 2; // Scale for higher resolution
+                    SKELETON.forEach(bone => {
+                        const p1 = person[bone[0]];
+                        const p2 = person[bone[1]];
+                        if (p1 && p2) {
+                            tempCtx.beginPath();
+                            tempCtx.moveTo(p1.x, p1.y);
+                            tempCtx.lineTo(p2.x, p2.y);
+                            tempCtx.stroke();
+                        }
+                    });
+
+                    // Draw keypoints
+                    Object.values(person).forEach(kp => {
+                        tempCtx.beginPath();
+                        tempCtx.arc(kp.x, kp.y, uiState.dotSize + 2, 0, 2 * Math.PI); // Scale for higher res
+                        tempCtx.fill();
+                    });
+                });
+            }
+
+            const link = document.createElement('a');
+            link.download = `pose-${currentImage.metadata.name}`;
+            link.href = tempCanvas.toDataURL('image/png');
+            link.click();
+        }
+
+        // --- Initialize ---
+        initializeUI();
+    </script>
+</body>
+
+</html>

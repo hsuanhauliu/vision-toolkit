@@ -46,6 +46,18 @@ def segmentation_results_to_lists(model_results, class_names):
     return all_polygons, all_classes
 
 
+def estimation_results_to_lists(model_results, class_names):
+    all_keypoints, all_classes = [], []
+    for result in model_results:
+        keypoints, classes = [], []
+        for i, keypoint in enumerate(result.keypoints):
+            classes.append(class_names[int(result.boxes.cls[i])])
+            keypoints.append(convert.keypointsToHumanBodyKeypoints(keypoint))
+        all_keypoints.append(keypoints)
+        all_classes.append(classes)
+    return all_keypoints, all_classes
+
+
 def get_model_info() -> dict:
     model_info = MODEL.info(detailed=False, verbose=True)
     model_layers = model_info[0] if model_info and len(model_info) > 1 else None
@@ -61,6 +73,7 @@ def get_inference_func(task_name: str) -> Callable:
     inference_task = {
         "object_detection": object_detection,
         "instance_segmentation": instance_segmentation,
+        "pose_estimation": pose_estimation,
     }
 
     if task_name not in inference_task:
@@ -72,6 +85,7 @@ def get_response_model(task_name: str) -> Callable:
     response_model = {
         "object_detection": rpc.ObjectDetectionResponse,
         "instance_segmentation": rpc.InstanceSegmentationResponse,
+        "pose_estimation": rpc.PoseEstimationResponse,
     }
 
     if task_name not in response_model:
@@ -81,6 +95,7 @@ def get_response_model(task_name: str) -> Callable:
 
 ########## Inference functions ##########
 def object_detection(data: rpc.ObjectDetectionRequest):
+    """Object detection feature entry."""
     imgs = convert.base64ListToNumpyArrayList(data.base64_imgs)
     results = MODEL(imgs)
     bb, classes = detection_results_to_lists(results, MODEL.names)
@@ -93,6 +108,7 @@ def object_detection(data: rpc.ObjectDetectionRequest):
 
 
 def instance_segmentation(data: rpc.InstanceSegmentationRequest):
+    """Instance segmentation feature entry."""
     imgs = convert.base64ListToNumpyArrayList(data.base64_imgs)
     results = MODEL(imgs)
     polygons, classes = segmentation_results_to_lists(results, MODEL.names)
@@ -104,5 +120,14 @@ def instance_segmentation(data: rpc.InstanceSegmentationRequest):
     }
 
 
-def image_classification():
-    return
+def pose_estimation(data: rpc.PoseEstimationRequest):
+    """Pose estimation feature entry."""
+    imgs = convert.base64ListToNumpyArrayList(data.base64_imgs)
+    results = MODEL(imgs)
+    keypoints, classes = estimation_results_to_lists(results, MODEL.names)
+
+    return {
+        "keypoints": keypoints,
+        "classes": classes,
+        "model_info": get_model_info(),
+    }
