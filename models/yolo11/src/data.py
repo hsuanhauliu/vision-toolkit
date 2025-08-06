@@ -5,10 +5,23 @@ from typing import List, Union
 class BoundingBox(BaseModel):
     """Bounding box coordinate in pixel values"""
 
-    left: int
-    top: int
-    right: int
-    bottom: int
+    left: float
+    top: float
+    right: float
+    bottom: float
+
+
+class OrientedBoundingBox(BaseModel):
+    """Oriented bounding box coordinate in pixel values"""
+
+    x1: float
+    y1: float
+    x2: float
+    y2: float
+    x3: float
+    y3: float
+    x4: float
+    y4: float
 
 
 class Coordinate(BaseModel):

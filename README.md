@@ -8,10 +8,10 @@ Inference service serving Ultralytics' [YOLO11](https://docs.ultralytics.com/mod
 
 You can check out the frontend clients via the links below. Note that this is just the frontend app and not connected to any backend.
 
-- https://hsuanhauliu.github.io/vision-toolkit/object_detection
-- https://hsuanhauliu.github.io/vision-toolkit/image_classification
-- https://hsuanhauliu.github.io/vision-toolkit/instance_segmentation
-- https://hsuanhauliu.github.io/vision-toolkit/pose_estimation
+- <https://hsuanhauliu.github.io/vision-toolkit/object_detection>
+- <https://hsuanhauliu.github.io/vision-toolkit/image_classification>
+- <https://hsuanhauliu.github.io/vision-toolkit/instance_segmentation>
+- <https://hsuanhauliu.github.io/vision-toolkit/pose_estimation>
 
 ## Run
 
@@ -29,18 +29,26 @@ Build Docker image.
 # Build the image. Needs to be in the current directory.
 docker build -t yolo11 -f models/yolo11/Dockerfile .
 
-# You can override the task by passing in BUILD_DIR_NAME. Default is object detection.
-docker build --build-arg YOLO_TASK="object_detection" -t yolo11 -f models/yolo11/Dockerfile .
+# You can override the task by passing in CLIENT build arg. Default is object detection.
+# Note: oriented object detection and object detection shares the same client code, so use "object_detection" for this step if you are using oriented object detection.
+docker build --build-arg CLIENT=object_detection -t yolo11 -f models/yolo11/Dockerfile .
 ```
 
 Run Docker container.
 
 ```bash
-# Frontend client will be running on http://localhost:8000. The default will build object detection docker image.
+# Frontend client will be running on http://localhost:8000. The default will build image classification docker image.
 # Note: right now the clients are hardcoded to use port 8000. You can modify the index.html to change that.
 docker run --rm -v ./data:/app/data --name yolo11 -p 8000:5000 yolo11
 
 # You can override the model task and saved model file name using environment variable like so:
 # Note: the backend will search for saved model file in ./data directory. Default model name is yolo_model.pt
-docker run --rm -v ./data:/app/data --name yolo11 -p 8000:5000 -e YOLO_TASK=object_detect -e SAVED_MODEL=yolo_model.pt yolo11
+#
+# Supported Yolo11 tasks:
+# - image_classification (default)
+# - object_detection
+# - oriented_object_detection
+# - instance_segmentation
+# - pose_estimation
+docker run --rm -v ./data:/app/data --name yolo11 -p 8000:5000 -e YOLO_TASK=object_detection -e SAVED_MODEL=yolo_model.pt yolo11
 ```

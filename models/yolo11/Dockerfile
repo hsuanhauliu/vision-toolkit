@@ -34,12 +34,12 @@ RUN pip install --no-cache-dir --upgrade pip && \
 # copy backend source code
 COPY ./models/yolo11/src .
 
-# default yolo11 model task
-ARG YOLO_TASK="object_detection"
+# Frontend client
+ARG CLIENT="image_classification"
 
 RUN mkdir -p ./static
 
-COPY ./docs/${YOLO_TASK}/index.html ./static
+COPY ./docs/${CLIENT}/index.html ./static
 
 # --- Entrypoint ---
 CMD ["uvicorn", "app:app", "--host=0.0.0.0", "--port=5000"]

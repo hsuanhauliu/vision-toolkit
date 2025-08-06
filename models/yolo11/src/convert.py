@@ -30,14 +30,30 @@ def numpyArrayToBase64(img: np.ndarray) -> str:
     return base64.b64encode(img)
 
 
-def boxToCoordinates(box) -> data.BoundingBox:
-    "Convert a Ultralytics Box class to dictionary of coordinates."
+def boxToBoundingBox(box) -> data.BoundingBox:
+    """Convert a Ultralytics Box class to dictionary of coordinates."""
     bounding_box = box.xyxy[0].numpy()
     return data.BoundingBox(
         left=int(bounding_box[0]),
         top=int(bounding_box[1]),
         right=int(bounding_box[2]),
         bottom=int(bounding_box[3]),
+    )
+
+
+def boxToOrientedBoundingBox(box) -> data.OrientedBoundingBox:
+    """Convert a Ultralytics Box class to dictionary of coordinates."""
+    bounding_box = box.xyxyxyxy[0]
+
+    return data.OrientedBoundingBox(
+        x1=bounding_box[0][0],
+        y1=bounding_box[0][1],
+        x2=bounding_box[1][0],
+        y2=bounding_box[1][1],
+        x3=bounding_box[2][0],
+        y3=bounding_box[2][1],
+        x4=bounding_box[3][0],
+        y4=bounding_box[3][1],
     )
 
 
@@ -88,8 +104,22 @@ def detection_results_to_lists(model_results, class_names):
     for result in model_results:
         bb, classes = [], []
         for box in result.boxes:
-            # get box coordinates in (left, top, right, bottom)
-            bb.append(convert.boxToCoordinates(box))
+            bb.append(boxToBoundingBox(box))
+            classes.append(class_names[int(box.cls)])
+        all_bb.append(bb)
+        all_classes.append(classes)
+    return all_bb, all_classes
+
+
+def oriented_detection_results_to_lists(model_results, class_names):
+    """
+    Convert the model inference results to a list of bounding boxes and a list of corresponding classes.
+    """
+    all_bb, all_classes = [], []
+    for result in model_results:
+        bb, classes = [], []
+        for box in result.obb:
+            bb.append(boxToOrientedBoundingBox(box))
             classes.append(class_names[int(box.cls)])
         all_bb.append(bb)
         all_classes.append(classes)
@@ -117,7 +147,7 @@ def segmentation_results_to_lists(model_results, class_names):
         masks, classes = [], []
         for i, mask in enumerate(result.masks):
             classes.append(class_names[int(result.boxes.cls[i])])
-            masks.append(convert.maskToPolygon(mask))
+            masks.append(maskToPolygon(mask))
         all_polygons.append(masks)
         all_classes.append(classes)
     return all_polygons, all_classes
@@ -129,7 +159,7 @@ def estimation_results_to_lists(model_results, class_names):
         keypoints, classes = [], []
         for i, keypoint in enumerate(result.keypoints):
             classes.append(class_names[int(result.boxes.cls[i])])
-            keypoints.append(convert.keypointsToHumanBodyKeypoints(keypoint))
+            keypoints.append(keypointsToHumanBodyKeypoints(keypoint))
         all_keypoints.append(keypoints)
         all_classes.append(classes)
     return all_keypoints, all_classes

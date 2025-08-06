@@ -36,6 +36,7 @@ def get_inference_func(task_name: str) -> Callable:
         "image_classification": image_classification,
         "instance_segmentation": instance_segmentation,
         "pose_estimation": pose_estimation,
+        "oriented_object_detection": oriented_object_detection,
     }
 
     if task_name not in inference_task:
@@ -49,6 +50,7 @@ def get_response_model(task_name: str) -> Callable:
         "image_classification": rpc.ImageClassificationResponse,
         "instance_segmentation": rpc.InstanceSegmentationResponse,
         "pose_estimation": rpc.PoseEstimationResponse,
+        "oriented_object_detection": rpc.OrientedObjectDetectionResponse,
     }
 
     if task_name not in response_model:
@@ -65,6 +67,18 @@ def object_detection(data: rpc.ObjectDetectionRequest):
 
     return {
         "bounding_boxes": bb,
+        "classes": classes,
+        "model_info": get_model_info(),
+    }
+
+def oriented_object_detection(data: rpc.OrientedObjectDetectionRequest):
+    """Object detection feature entry."""
+    imgs = convert.base64ListToNumpyArrayList(data.base64_imgs)
+    results = MODEL(imgs)
+    bb, classes = convert.oriented_detection_results_to_lists(results, MODEL.names)
+
+    return {
+        "oriented_bounding_boxes": bb,
         "classes": classes,
         "model_info": get_model_info(),
     }

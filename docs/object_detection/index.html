@@ -567,22 +567,34 @@
                 if (!response.ok) throw new Error(`Server responded with status: ${response.status}`);
 
                 const data = await response.json();
-                if (!data.bounding_boxes || !data.classes || !data.model_info) {
-                    throw new Error('Invalid response format from server.');
+                if ((!data.bounding_boxes && !data.oriented_bounding_boxes) || !data.classes || !data.model_info) {
+                    throw new Error('Invalid response format from server. Missing bounding_boxes or classes.');
                 }
 
-                if (mode === 'current') {
-                    const currentImage = imageList[currentImageIndex];
-                    currentImage.detectionResults = {
-                        boxes: data.bounding_boxes[0],
-                        classes: data.classes[0]
+                const processResults = (img, index) => {
+                    let oriented_boxes = null;
+                    if (data.oriented_bounding_boxes && data.oriented_bounding_boxes[index]) {
+                        // Convert from {x1, y1, ...} to [{x,y}, {x,y}, ...]
+                        oriented_boxes = data.oriented_bounding_boxes[index].map(ob => [
+                            { x: ob.x1, y: ob.y1 },
+                            { x: ob.x2, y: ob.y2 },
+                            { x: ob.x3, y: ob.y3 },
+                            { x: ob.x4, y: ob.y4 }
+                        ]);
+                    }
+
+                    img.detectionResults = {
+                        boxes: data.bounding_boxes ? data.bounding_boxes[index] : null,
+                        oriented_boxes: oriented_boxes,
+                        classes: data.classes[index]
                     };
+                };
+
+                if (mode === 'current') {
+                    processResults(imageList[currentImageIndex], 0);
                 } else {
                     imageList.forEach((img, index) => {
-                        img.detectionResults = {
-                            boxes: data.bounding_boxes[index],
-                            classes: data.classes[index]
-                        };
+                        processResults(img, index);
                     });
                 }
 
@@ -613,7 +625,7 @@
             bboxCanvas.height = containerRect.height;
             ctx.clearRect(0, 0, bboxCanvas.width, bboxCanvas.height);
 
-            if (!uiState.showBoxes || !detectionResults || detectionResults.boxes.length === 0) return;
+            if (!uiState.showBoxes || !detectionResults || (!detectionResults.boxes && !detectionResults.oriented_boxes)) return;
 
             const imageRect = uploadedImage.getBoundingClientRect();
 
@@ -634,67 +646,92 @@
                 const b = parseInt(result[3], 16);
                 return `rgba(${r}, ${g}, ${b}, ${alpha})`;
             };
-
+            
             const hasHighlight = uiState.highlightedIndex !== -1;
             const highlightedIndex = uiState.highlightedIndex;
 
-            // --- Pass 1: Draw all non-highlighted boxes (or all if no highlight) ---
-            detectionResults.boxes.forEach((box, i) => {
-                if (i === highlightedIndex) return; // Skip highlighted box for now
+            const boxesToDraw = detectionResults.oriented_boxes || detectionResults.boxes;
+            const isOriented = !!detectionResults.oriented_boxes;
+
+            // --- Pass 1: Draw all non-highlighted boxes ---
+            boxesToDraw.forEach((box, i) => {
+                if (i === highlightedIndex) return;
 
                 const className = detectionResults.classes[i];
                 if (uiState.filterClass !== 'all' && className !== uiState.filterClass) return;
 
                 const color = colors[i % colors.length];
-                const alpha = hasHighlight ? 0.25 : 1.0; // Fade if something else is highlighted
+                const alpha = hasHighlight ? 0.25 : 1.0;
 
                 ctx.strokeStyle = hexToRgba(color, alpha);
                 ctx.lineWidth = 2.5;
 
-                const x = box.left * scaleX + offsetX;
-                const y = box.top * scaleY + offsetY;
-                const width = (box.right - box.left) * scaleX;
-                const height = (box.bottom - box.top) * scaleY;
-                ctx.strokeRect(x, y, width, height);
+                if (isOriented) {
+                    ctx.beginPath();
+                    ctx.moveTo(box[0].x * scaleX + offsetX, box[0].y * scaleY + offsetY);
+                    for (let j = 1; j < box.length; j++) {
+                        ctx.lineTo(box[j].x * scaleX + offsetX, box[j].y * scaleY + offsetY);
+                    }
+                    ctx.closePath();
+                    ctx.stroke();
+                } else { // Standard box
+                    const x = box.left * scaleX + offsetX;
+                    const y = box.top * scaleY + offsetY;
+                    const width = (box.right - box.left) * scaleX;
+                    const height = (box.bottom - box.top) * scaleY;
+                    ctx.strokeRect(x, y, width, height);
+                }
 
                 if (uiState.showLabels) {
                     const label = className || 'unknown';
                     ctx.font = 'bold 14px Inter';
                     const textWidth = ctx.measureText(label).width;
-
+                    const labelPos = isOriented ? { x: box[0].x * scaleX + offsetX, y: box[0].y * scaleY + offsetY } : { x: box.left * scaleX + offsetX, y: box.top * scaleY + offsetY };
+                    
                     ctx.fillStyle = hexToRgba(color, hasHighlight ? 0.4 : 1.0);
-                    ctx.fillRect(x, y - 20, textWidth + 10, 20);
+                    ctx.fillRect(labelPos.x, labelPos.y - 20, textWidth + 10, 20);
                     ctx.fillStyle = hexToRgba('#FFFFFF', hasHighlight ? 0.7 : 1.0);
-                    ctx.fillText(label, x + 5, y - 5);
+                    ctx.fillText(label, labelPos.x + 5, labelPos.y - 5);
                 }
             });
 
             // --- Pass 2: Draw the highlighted box on top ---
             if (hasHighlight) {
                 const i = highlightedIndex;
-                const box = detectionResults.boxes[i];
+                const box = boxesToDraw[i];
                 const className = detectionResults.classes[i];
 
                 if (uiState.filterClass === 'all' || className === uiState.filterClass) {
                     const color = colors[i % colors.length];
+                    ctx.strokeStyle = color;
+                    ctx.lineWidth = 4;
 
-                    ctx.strokeStyle = color; // Full opacity
-                    ctx.lineWidth = 4; // Thicker line
-
-                    const x = box.left * scaleX + offsetX;
-                    const y = box.top * scaleY + offsetY;
-                    const width = (box.right - box.left) * scaleX;
-                    const height = (box.bottom - box.top) * scaleY;
-                    ctx.strokeRect(x, y, width, height);
+                    if (isOriented) {
+                        ctx.beginPath();
+                        ctx.moveTo(box[0].x * scaleX + offsetX, box[0].y * scaleY + offsetY);
+                        for (let j = 1; j < box.length; j++) {
+                           ctx.lineTo(box[j].x * scaleX + offsetX, box[j].y * scaleY + offsetY);
+                        }
+                        ctx.closePath();
+                        ctx.stroke();
+                    } else { // Standard box
+                        const x = box.left * scaleX + offsetX;
+                        const y = box.top * scaleY + offsetY;
+                        const width = (box.right - box.left) * scaleX;
+                        const height = (box.bottom - box.top) * scaleY;
+                        ctx.strokeRect(x, y, width, height);
+                    }
 
                     if (uiState.showLabels) {
                         const label = className || 'unknown';
-                        ctx.fillStyle = color; // Full opacity
                         ctx.font = 'bold 14px Inter';
                         const textWidth = ctx.measureText(label).width;
-                        ctx.fillRect(x, y - 20, textWidth + 10, 20);
-                        ctx.fillStyle = '#FFFFFF'; // Full opacity
-                        ctx.fillText(label, x + 5, y - 5);
+                        const labelPos = isOriented ? { x: box[0].x * scaleX + offsetX, y: box[0].y * scaleY + offsetY } : { x: box.left * scaleX + offsetX, y: box.top * scaleY + offsetY };
+
+                        ctx.fillStyle = color;
+                        ctx.fillRect(labelPos.x, labelPos.y - 20, textWidth + 10, 20);
+                        ctx.fillStyle = '#FFFFFF';
+                        ctx.fillText(label, labelPos.x + 5, labelPos.y - 5);
                     }
                 }
             }
@@ -853,6 +890,24 @@
             uiState.highlightedIndex = isHovering ? index : -1;
             redrawCanvas();
         }
+        
+        /**
+         * Checks if a point is inside a polygon using the ray-casting algorithm.
+         * @param {{x: number, y: number}} point The point to check.
+         * @param {Array<{x: number, y: number}>} polygon The polygon vertices.
+         * @returns {boolean} True if the point is inside the polygon.
+         */
+        function isPointInPolygon(point, polygon) {
+            const { x, y } = point;
+            let isInside = false;
+            for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+                const xi = polygon[i].x, yi = polygon[i].y;
+                const xj = polygon[j].x, yj = polygon[j].y;
+                const intersect = ((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
+                if (intersect) isInside = !isInside;
+            }
+            return isInside;
+        }
 
         function handleCanvasMouseMove(event) {
             if (!uiState.showBoxes || currentImageIndex === -1) return;
@@ -873,17 +928,38 @@
             const mouseY = event.clientY - canvasRect.top;
 
             let foundIndex = -1;
-            for (let i = detectionResults.boxes.length - 1; i >= 0; i--) {
+            const isOriented = !!detectionResults.oriented_boxes;
+            const boxesToSearch = detectionResults.oriented_boxes || detectionResults.boxes;
+
+            if (!boxesToSearch) return;
+
+            for (let i = boxesToSearch.length - 1; i >= 0; i--) {
                 const className = detectionResults.classes[i];
                 if (uiState.filterClass !== 'all' && className !== uiState.filterClass) continue;
 
-                const box = detectionResults.boxes[i];
-                const x = box.left * scaleX + offsetX;
-                const y = box.top * scaleY + offsetY;
-                const width = (box.right - box.left) * scaleX;
-                const height = (box.bottom - top) * scaleY;
+                let isHovered = false;
+                if (isOriented) {
+                    const polygon = boxesToSearch[i];
+                    const scaledPolygon = polygon.map(p => ({
+                        x: p.x * scaleX + offsetX,
+                        y: p.y * scaleY + offsetY
+                    }));
+                    if (isPointInPolygon({ x: mouseX, y: mouseY }, scaledPolygon)) {
+                        isHovered = true;
+                    }
+                } else { // Standard box
+                    const box = boxesToSearch[i];
+                    const x = box.left * scaleX + offsetX;
+                    const y = box.top * scaleY + offsetY;
+                    const width = (box.right - box.left) * scaleX;
+                    const height = (box.bottom - box.top) * scaleY;
 
-                if (mouseX >= x && mouseX <= x + width && mouseY >= y && mouseY <= y + height) {
+                    if (mouseX >= x && mouseX <= x + width && mouseY >= y && mouseY <= y + height) {
+                        isHovered = true;
+                    }
+                }
+
+                if (isHovered) {
                     foundIndex = i;
                     break;
                 }
@@ -939,26 +1015,44 @@
 
             if (uiState.showBoxes && detectionResults) {
                 const colors = ['#f97316', '#3b82f6', '#10b981', '#ef4444', '#8b5cf6', '#eab308'];
-                detectionResults.boxes.forEach((box, i) => {
-                    const color = colors[i % colors.length];
-                    tempCtx.strokeStyle = color;
-                    tempCtx.lineWidth = 5;
-                    const x = box.left;
-                    const y = box.top;
-                    const width = box.right - box.left;
-                    const height = box.bottom - box.top;
-                    tempCtx.strokeRect(x, y, width, height);
+                const isOriented = !!detectionResults.oriented_boxes;
+                const boxesToDraw = detectionResults.oriented_boxes || detectionResults.boxes;
+                
+                if (boxesToDraw) {
+                    boxesToDraw.forEach((box, i) => {
+                        const color = colors[i % colors.length];
+                        tempCtx.strokeStyle = color;
+                        tempCtx.lineWidth = 5;
 
-                    if (uiState.showLabels) {
-                        const className = detectionResults.classes[i] || 'unknown';
-                        tempCtx.fillStyle = color;
-                        tempCtx.font = 'bold 24px Inter';
-                        const textWidth = tempCtx.measureText(className).width;
-                        tempCtx.fillRect(x, y - 30, textWidth + 10, 30);
-                        tempCtx.fillStyle = '#FFFFFF';
-                        tempCtx.fillText(className, x + 5, y - 5);
-                    }
-                });
+                        if (isOriented) {
+                            tempCtx.beginPath();
+                            tempCtx.moveTo(box[0].x, box[0].y);
+                            for(let j = 1; j < box.length; j++) {
+                                tempCtx.lineTo(box[j].x, box[j].y);
+                            }
+                            tempCtx.closePath();
+                            tempCtx.stroke();
+                        } else {
+                            const x = box.left;
+                            const y = box.top;
+                            const width = box.right - box.left;
+                            const height = box.bottom - box.top;
+                            tempCtx.strokeRect(x, y, width, height);
+                        }
+
+                        if (uiState.showLabels) {
+                            const className = detectionResults.classes[i] || 'unknown';
+                            tempCtx.fillStyle = color;
+                            tempCtx.font = 'bold 24px Inter';
+                            const textWidth = tempCtx.measureText(className).width;
+                            const labelPos = isOriented ? { x: box[0].x, y: box[0].y } : { x: box.left, y: box.top };
+                            
+                            tempCtx.fillRect(labelPos.x, labelPos.y - 30, textWidth + 10, 30);
+                            tempCtx.fillStyle = '#FFFFFF';
+                            tempCtx.fillText(className, labelPos.x + 5, labelPos.y - 5);
+                        }
+                    });
+                }
             }
 
             const link = document.createElement('a');

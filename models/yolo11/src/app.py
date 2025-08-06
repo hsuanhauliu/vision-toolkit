@@ -13,7 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 LOGGER = logging.getLogger(__name__)
-YOLO_TASK = os.environ.get("YOLO_TASK", "object_detection").lower()
+YOLO_TASK = os.environ.get("YOLO_TASK", "instance_segmentation").lower()
 
 inference_func = get_inference_func(YOLO_TASK)
 response_model = get_response_model(YOLO_TASK)

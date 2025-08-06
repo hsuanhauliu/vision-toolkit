@@ -5,6 +5,7 @@ from typing import List
 
 import data
 
+
 ########## Image Classification ##########
 class ImageClassificationRequest(BaseModel):
     """Image classification RPC request."""
@@ -37,6 +38,23 @@ class ObjectDetectionResponse(BaseModel):
     """
 
     bounding_boxes: List[List[data.BoundingBox]]
+    classes: List[List[str]]
+    model_info: data.ModelInfo
+
+
+class OrientedObjectDetectionRequest(BaseModel):
+    """Object detection RPC request."""
+
+    base64_imgs: List[str]  # base64 encoded images
+
+
+class OrientedObjectDetectionResponse(BaseModel):
+    """Object detection RPC response.
+
+    The order of both lists align with each other.
+    """
+
+    oriented_bounding_boxes: List[List[data.OrientedBoundingBox]]
     classes: List[List[str]]
     model_info: data.ModelInfo
 
