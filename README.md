@@ -29,7 +29,7 @@ Build Docker image.
 # Build the image. Needs to be in the current directory.
 docker build -t yolo11 -f models/yolo11/Dockerfile .
 
-# You can override the task by passing in CLIENT build arg. Default is object detection.
+# You can override the task by passing in CLIENT build arg. Default is image classification.
 # Note: oriented object detection and object detection shares the same client code, so use "object_detection" for this step if you are using oriented object detection.
 docker build --build-arg CLIENT=object_detection -t yolo11 -f models/yolo11/Dockerfile .
 ```
