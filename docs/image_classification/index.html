@@ -1,0 +1,524 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Image Classification</title>
+    <!-- Tailwind CSS for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts: Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: {
+                            DEFAULT: '#F59E0B', // Amber 500
+                            hover: '#D97706', // Amber 600
+                            light: '#FEF3C7', // Amber 100
+                        },
+                        secondary: '#6B7280',
+                        light: '#F9FAFB',
+                        dark: '#1F2937',
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #F9FAFB;
+        }
+
+        html,
+        body {
+            height: 100%;
+            overflow: hidden;
+        }
+
+        #image-container {
+            position: relative;
+        }
+
+        .nav-arrow {
+            position: absolute;
+            top: 50%;
+            transform: translateY(-50%);
+            background-color: rgba(0, 0, 0, 0.4);
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 44px;
+            height: 44px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: background-color 0.2s, transform 0.2s;
+            z-index: 10;
+        }
+
+        .nav-arrow:hover {
+            background-color: rgba(0, 0, 0, 0.7);
+            transform: translateY(-50%) scale(1.1);
+        }
+
+        .nav-arrow:disabled {
+            display: none;
+        }
+
+        /* Carousel scrollbar styling */
+        #carousel-track::-webkit-scrollbar {
+            height: 8px;
+        }
+
+        #carousel-track::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 10px;
+        }
+
+        #carousel-track::-webkit-scrollbar-thumb {
+            background: #d1d5db;
+            border-radius: 10px;
+        }
+
+        #carousel-track::-webkit-scrollbar-thumb:hover {
+            background: #9ca3af;
+        }
+    </style>
+</head>
+
+<body class="h-full">
+
+    <div class="flex flex-col lg:flex-row h-full w-full">
+
+        <!-- Left Column: Image and Controls -->
+        <div class="w-full lg:w-3/5 flex flex-col p-8 bg-white">
+
+            <!-- Controls Wrapper -->
+            <div class="flex-shrink-0">
+                <div class="flex justify-between items-center mb-6">
+                    <div class="flex items-center gap-4">
+                        <label for="image-upload"
+                            class="inline-flex items-center bg-primary-light text-primary-dark font-semibold py-2 px-5 border border-primary/20 rounded-xl shadow-sm hover:bg-primary/20 cursor-pointer transition-all">
+                            <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                                xmlns="http://www.w3.org/2000/svg">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path>
+                            </svg>
+                            <span>Upload Image(s)</span>
+                        </label>
+                        <input type="file" id="image-upload" accept="image/*" class="hidden" multiple>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <button id="classify-current-button"
+                            class="bg-white text-primary border border-primary font-bold py-2 px-5 rounded-xl hover:bg-primary-light focus:outline-none focus:ring-4 focus:ring-primary/30 transition-all duration-300 disabled:bg-gray-300 disabled:text-gray-500 disabled:border-gray-300 disabled:cursor-not-allowed">
+                            Classify Current
+                        </button>
+                        <button id="classify-all-button"
+                            class="bg-primary text-white font-bold py-2 px-5 rounded-xl hover:bg-primary-hover focus:outline-none focus:ring-4 focus:ring-primary/30 transition-all duration-300 disabled:bg-gray-300 disabled:cursor-not-allowed shadow-lg shadow-primary/20 hover:shadow-primary/40">
+                            Classify All
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Image Display & Progress -->
+            <div class="flex-grow relative flex flex-col justify-center items-center min-h-0">
+                <div id="image-container"
+                    class="relative w-full h-full flex items-center justify-center border-2 border-dashed border-gray-200 rounded-2xl bg-light">
+                    <img id="uploaded-image" src="" alt="Uploaded image"
+                        class="max-w-full max-h-full object-contain hidden rounded-lg">
+                    <p id="placeholder-text" class="text-secondary">Upload image(s) to get started</p>
+
+                    <div id="loading-overlay"
+                        class="absolute inset-0 bg-white bg-opacity-75 flex items-center justify-center rounded-2xl hidden z-20 backdrop-blur-sm">
+                        <div class="flex flex-col items-center">
+                            <svg class="animate-spin h-10 w-10 text-primary" xmlns="http://www.w3.org/2000/svg"
+                                fill="none" viewBox="0 0 24 24">
+                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor"
+                                    stroke-width="4"></circle>
+                                <path class="opacity-75" fill="currentColor"
+                                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
+                                </path>
+                            </svg>
+                            <p class="mt-4 text-secondary font-medium">Processing...</p>
+                        </div>
+                    </div>
+
+                    <button id="prev-image-btn" class="nav-arrow left-4" disabled><svg class="w-6 h-6" fill="none"
+                            stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7">
+                            </path>
+                        </svg></button>
+                    <button id="next-image-btn" class="nav-arrow right-4" disabled><svg class="w-6 h-6" fill="none"
+                            stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7">
+                            </path>
+                        </svg></button>
+                </div>
+                <div class="h-6"><!-- Placeholder for progress bar to prevent layout shift --></div>
+            </div>
+
+            <div id="image-name-bar" class="flex-shrink-0 text-center pt-2 h-8">
+                <span id="file-name" class="text-sm text-secondary"></span>
+            </div>
+
+            <!-- Carousel -->
+            <div id="carousel-container" class="flex-shrink-0 w-full h-24">
+                <div id="carousel-track"
+                    class="flex items-center gap-3 p-2 h-full overflow-x-auto bg-light border rounded-xl">
+                    <!-- Thumbnails will be injected here by JavaScript -->
+                </div>
+            </div>
+
+        </div>
+
+        <!-- Right Column: Results & Model Info -->
+        <div id="results-column" class="w-full lg:w-2/5 flex flex-col p-8 space-y-6 bg-light overflow-y-auto">
+            <div class="bg-white border rounded-2xl shadow-sm flex flex-col overflow-hidden">
+                <div class="p-5 flex-shrink-0 border-b">
+                    <h3 class="font-bold text-lg text-dark">Top 5 Predictions</h3>
+                </div>
+                <div id="results-table-container" class="overflow-y-auto">
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <thead class="bg-light sticky top-0">
+                            <tr>
+                                <th scope="col"
+                                    class="px-6 py-3 text-left text-xs font-bold text-secondary uppercase tracking-wider w-16">
+                                    Rank</th>
+                                <th scope="col"
+                                    class="px-6 py-3 text-left text-xs font-bold text-secondary uppercase tracking-wider">
+                                    Class</th>
+                                <th scope="col"
+                                    class="px-6 py-3 text-left text-xs font-bold text-secondary uppercase tracking-wider">
+                                    Probability</th>
+                            </tr>
+                        </thead>
+                        <tbody id="results-table-body" class="bg-white divide-y divide-gray-200">
+                            <!-- Rows will be inserted here -->
+                        </tbody>
+                    </table>
+                    <p id="no-results-text" class="text-center p-8 text-secondary hidden">No classification results yet.
+                    </p>
+                </div>
+            </div>
+            <div class="bg-white rounded-2xl shadow-sm border flex-shrink-0">
+                <div class="p-5">
+                    <h3 class="font-bold text-lg text-dark">Model Information</h3>
+                </div>
+                <div id="model-summary-content" class="px-5 pb-5 pt-0 space-y-5">
+                    <p class="text-sm text-secondary">No model info yet.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- DOM Element References ---
+        const imageUpload = document.getElementById('image-upload');
+        const fileNameSpan = document.getElementById('file-name');
+        const uploadedImage = document.getElementById('uploaded-image');
+        const imageContainer = document.getElementById('image-container');
+        const classifyAllBtn = document.getElementById('classify-all-button');
+        const classifyCurrentBtn = document.getElementById('classify-current-button');
+        const placeholderText = document.getElementById('placeholder-text');
+        const loadingOverlay = document.getElementById('loading-overlay');
+        const downloadBtn = document.getElementById('download-btn');
+        const modelSummaryContent = document.getElementById('model-summary-content');
+        const carouselTrack = document.getElementById('carousel-track');
+        const resultsTableBody = document.getElementById('results-table-body');
+        const noResultsText = document.getElementById('no-results-text');
+
+        // Navigation
+        const prevImageBtn = document.getElementById('prev-image-btn');
+        const nextImageBtn = document.getElementById('next-image-btn');
+
+        // --- State Management ---
+        const backendUrl = 'http://localhost:8000/predict'; // This should point to your backend
+        let imageList = [];
+        let modelInfo = null;
+        let currentImageIndex = -1;
+
+        // --- Event Listeners ---
+        imageUpload.addEventListener('change', (event) => {
+            const newFiles = Array.from(event.target.files);
+            if (newFiles.length === 0) return;
+
+            const wasEmpty = imageList.length === 0;
+
+            const newImages = newFiles.map(file => ({
+                file: file,
+                src: URL.createObjectURL(file),
+                metadata: { name: file.name, size: file.size, type: file.type },
+                classificationResult: null
+            }));
+
+            imageList.push(...newImages);
+
+            if (wasEmpty) {
+                currentImageIndex = 0;
+                displayImage(0);
+            }
+
+            renderCarousel();
+            updateNavButtons();
+            updateFileNameSpan();
+        });
+
+        classifyAllBtn.addEventListener('click', () => handleClassification('all'));
+        classifyCurrentBtn.addEventListener('click', () => handleClassification('current'));
+        downloadBtn.addEventListener('click', downloadImage);
+
+        // Navigation listeners
+        prevImageBtn.addEventListener('click', () => {
+            if (currentImageIndex > 0) {
+                currentImageIndex--;
+                displayImage(currentImageIndex);
+            }
+        });
+        nextImageBtn.addEventListener('click', () => {
+            if (currentImageIndex < imageList.length - 1) {
+                currentImageIndex++;
+                displayImage(currentImageIndex);
+            }
+        });
+
+        // --- Core Functions ---
+        function displayImage(index) {
+            if (index < 0 || index >= imageList.length) return;
+
+            const currentImage = imageList[index];
+            uploadedImage.src = currentImage.src;
+
+            uploadedImage.onload = () => {
+                uploadedImage.classList.remove('hidden');
+                placeholderText.classList.add('hidden');
+                classifyAllBtn.disabled = false;
+                classifyCurrentBtn.disabled = false;
+
+                if (currentImage.classificationResult) {
+                    populateResultsTable();
+                } else {
+                    clearResults();
+                }
+                populateModelSummary();
+                updateNavButtons();
+                updateFileNameSpan();
+                renderCarousel();
+            };
+        }
+
+        async function handleClassification(mode = 'all') {
+            const imagesToProcess = mode === 'current' ? [imageList[currentImageIndex]] : imageList;
+            if (imagesToProcess.length === 0) return;
+
+            classifyAllBtn.disabled = true;
+            classifyCurrentBtn.disabled = true;
+            loadingOverlay.classList.remove('hidden');
+
+            const base64Promises = imagesToProcess.map(img => {
+                return new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.readAsDataURL(img.file);
+                    reader.onload = () => resolve(reader.result.split(',')[1]);
+                    reader.onerror = error => reject(error);
+                });
+            });
+
+            try {
+                const base64Images = await Promise.all(base64Promises);
+
+                // Simulate network delay
+                await new Promise(resolve => setTimeout(resolve, 1500));
+
+                const response = await fetch(backendUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ base64_imgs: base64Images }),
+                });
+
+                if (!response.ok) throw new Error(`Server responded with status: ${response.status}`);
+
+                const data = await response.json();
+                if (!data.classes || !data.probabilities || !data.model_info) {
+                    throw new Error('Invalid response format from server. Expected "classes", "probabilities", and "model_info".');
+                }
+
+                const processResults = (imageIndex) => {
+                    const predictions = data.classes[imageIndex].map((className, i) => ({
+                        class: className,
+                        probability: data.probabilities[imageIndex][i]
+                    }));
+                    return { predictions };
+                };
+
+                if (mode === 'current') {
+                    const currentImage = imageList[currentImageIndex];
+                    currentImage.classificationResult = processResults(0);
+                } else {
+                    imageList.forEach((img, index) => {
+                        img.classificationResult = processResults(index);
+                    });
+                }
+
+                modelInfo = data.model_info;
+                displayImage(currentImageIndex);
+
+            } catch (error) {
+                console.error('Error during classification:', error);
+                alert(`An error occurred: ${error.message}. Please check the console for details.`);
+            } finally {
+                loadingOverlay.classList.add('hidden');
+                classifyAllBtn.disabled = false;
+                classifyCurrentBtn.disabled = false;
+            }
+        }
+
+        // --- UI Update Functions ---
+        function populateResultsTable() {
+            resultsTableBody.innerHTML = '';
+
+            const currentImage = imageList[currentImageIndex];
+            if (currentImage && currentImage.classificationResult && currentImage.classificationResult.predictions) {
+                noResultsText.classList.add('hidden');
+                resultsTableBody.parentElement.classList.remove('hidden');
+
+                currentImage.classificationResult.predictions.forEach((pred, index) => {
+                    const row = document.createElement('tr');
+                    const probabilityPercentage = (pred.probability * 100).toFixed(2);
+
+                    row.innerHTML = `
+                        <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-dark">${index + 1}</td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-secondary">${pred.class.replace(/_/g, ' ')}</td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-secondary">
+                            <div class="flex items-center">
+                                <div class="w-full bg-gray-200 rounded-full h-2.5">
+                                    <div class="bg-primary h-2.5 rounded-full" style="width: ${probabilityPercentage}%"></div>
+                                </div>
+                                <span class="ml-3 font-mono text-xs">${probabilityPercentage}%</span>
+                            </div>
+                        </td>
+                    `;
+                    resultsTableBody.appendChild(row);
+                });
+            } else {
+                clearResults();
+            }
+        }
+
+        function populateModelSummary() {
+            if (!modelInfo) {
+                modelSummaryContent.innerHTML = `<p class="text-sm text-secondary">No model info yet.</p>`;
+                return;
+            }
+            const labelsHtml = modelInfo.labels.map(label => `<span class="inline-block bg-gray-100 rounded-full px-3 py-1 text-sm font-medium text-secondary mr-2 mb-2">${label}</span>`).join('');
+            modelSummaryContent.innerHTML = `
+                <div class="space-y-3 text-sm">
+                    <p><strong>Parameters:</strong> <span class="font-mono bg-primary-light text-primary-dark px-2 py-1 rounded-md">${modelInfo.parameters.toLocaleString()}</span></p>
+                    <p><strong>Layers:</strong> <span class="font-mono bg-primary-light text-primary-dark px-2 py-1 rounded-md">${modelInfo.layers.toLocaleString()}</span></p>
+                    <div>
+                        <p class="font-semibold text-dark mb-2">Trainable Labels (${modelInfo.labels.length}):</p>
+                        <div class="max-h-32 overflow-y-auto p-3 bg-light rounded-lg border">
+                            ${labelsHtml}
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function updateNavButtons() {
+            prevImageBtn.disabled = currentImageIndex <= 0;
+            nextImageBtn.disabled = currentImageIndex >= imageList.length - 1;
+        }
+
+        function updateFileNameSpan() {
+            if (currentImageIndex !== -1) {
+                const currentImage = imageList[currentImageIndex];
+                fileNameSpan.textContent = `${currentImage.metadata.name} (${currentImageIndex + 1}/${imageList.length})`;
+            } else {
+                fileNameSpan.textContent = '';
+            }
+        }
+
+        function renderCarousel() {
+            carouselTrack.innerHTML = '';
+            imageList.forEach((image, index) => {
+                const thumbWrapper = document.createElement('div');
+                thumbWrapper.className = `cursor-pointer rounded-lg border-2 p-1 transition-all flex-shrink-0 ${index === currentImageIndex ? 'border-primary' : 'border-transparent hover:border-primary/50'}`;
+                thumbWrapper.addEventListener('click', () => {
+                    currentImageIndex = index;
+                    displayImage(index);
+                });
+
+                const thumbImg = document.createElement('img');
+                thumbImg.src = image.src;
+                thumbImg.className = 'w-20 h-16 object-cover rounded-md';
+
+                thumbWrapper.appendChild(thumbImg);
+                carouselTrack.appendChild(thumbWrapper);
+            });
+        }
+
+        function clearResults() {
+            resultsTableBody.innerHTML = '';
+            noResultsText.classList.remove('hidden');
+            resultsTableBody.parentElement.classList.add('hidden');
+        }
+
+        function downloadImage() {
+            if (currentImageIndex === -1) return;
+            const currentImage = imageList[currentImageIndex];
+            const result = currentImage.classificationResult;
+
+            const tempCanvas = document.createElement('canvas');
+            const tempCtx = tempCanvas.getContext('2d');
+
+            const img = new Image();
+            img.onload = () => {
+                tempCanvas.width = img.naturalWidth;
+                tempCanvas.height = img.naturalHeight;
+                tempCtx.drawImage(img, 0, 0);
+
+                if (result && result.predictions && result.predictions.length > 0) {
+                    const topPrediction = result.predictions[0];
+                    const text = topPrediction.class.replace(/_/g, ' ');
+                    const probText = `(${(topPrediction.probability * 100).toFixed(1)}%)`;
+                    const fullText = `${text} ${probText}`;
+
+                    tempCtx.font = `bold ${Math.max(30, tempCanvas.width / 25)}px Inter`;
+                    tempCtx.textAlign = 'center';
+                    tempCtx.textBaseline = 'bottom';
+
+                    const textMetrics = tempCtx.measureText(fullText);
+                    const padding = 20;
+
+                    tempCtx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+                    tempCtx.fillRect(
+                        (tempCanvas.width - textMetrics.width) / 2 - padding,
+                        tempCanvas.height - 60 - padding,
+                        textMetrics.width + padding * 2,
+                        60
+                    );
+
+                    tempCtx.fillStyle = 'white';
+                    tempCtx.fillText(fullText, tempCanvas.width / 2, tempCanvas.height - padding - 10);
+                }
+
+                const link = document.createElement('a');
+                link.download = `classification-${currentImage.metadata.name}`;
+                link.href = tempCanvas.toDataURL('image/png');
+                link.click();
+            };
+            img.src = currentImage.src;
+        }
+
+    </script>
+</body>
+
+</html>

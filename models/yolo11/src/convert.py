@@ -78,3 +78,58 @@ def keypointsToHumanBodyKeypoints(keypoints):
         left_ankle=keypoint_coordinates[15],
         right_ankle=keypoint_coordinates[16],
     )
+
+
+def detection_results_to_lists(model_results, class_names):
+    """
+    Convert the model inference results to a list of bounding boxes and a list of corresponding classes.
+    """
+    all_bb, all_classes = [], []
+    for result in model_results:
+        bb, classes = [], []
+        for box in result.boxes:
+            # get box coordinates in (left, top, right, bottom)
+            bb.append(convert.boxToCoordinates(box))
+            classes.append(class_names[int(box.cls)])
+        all_bb.append(bb)
+        all_classes.append(classes)
+    return all_bb, all_classes
+
+
+def classification_results_to_lists(model_results, class_names):
+    """
+    Convert the model inference results to a list of classes.
+    """
+    all_classes, all_probs = [], []
+    for result in model_results:
+        classes, probs = [], []
+        for cls in result.probs.top5:
+            classes.append(class_names[cls])
+            probs.append(result.probs.data[cls])
+        all_classes.append(classes)
+        all_probs.append(probs)
+    return all_classes, all_probs
+
+
+def segmentation_results_to_lists(model_results, class_names):
+    all_polygons, all_classes = [], []
+    for result in model_results:
+        masks, classes = [], []
+        for i, mask in enumerate(result.masks):
+            classes.append(class_names[int(result.boxes.cls[i])])
+            masks.append(convert.maskToPolygon(mask))
+        all_polygons.append(masks)
+        all_classes.append(classes)
+    return all_polygons, all_classes
+
+
+def estimation_results_to_lists(model_results, class_names):
+    all_keypoints, all_classes = [], []
+    for result in model_results:
+        keypoints, classes = [], []
+        for i, keypoint in enumerate(result.keypoints):
+            classes.append(class_names[int(result.boxes.cls[i])])
+            keypoints.append(convert.keypointsToHumanBodyKeypoints(keypoint))
+        all_keypoints.append(keypoints)
+        all_classes.append(classes)
+    return all_keypoints, all_classes

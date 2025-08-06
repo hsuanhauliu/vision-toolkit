@@ -9,6 +9,7 @@ Inference service serving Ultralytics' [YOLO11](https://docs.ultralytics.com/mod
 You can check out the frontend clients via the links below. Note that this is just the frontend app and not connected to any backend.
 
 - https://hsuanhauliu.github.io/vision-toolkit/object_detection
+- https://hsuanhauliu.github.io/vision-toolkit/image_classification
 - https://hsuanhauliu.github.io/vision-toolkit/instance_segmentation
 - https://hsuanhauliu.github.io/vision-toolkit/pose_estimation
 
@@ -36,6 +37,7 @@ Run Docker container.
 
 ```bash
 # Frontend client will be running on http://localhost:8000. The default will build object detection docker image.
+# Note: right now the clients are hardcoded to use port 8000. You can modify the index.html to change that.
 docker run --rm -v ./data:/app/data --name yolo11 -p 8000:5000 yolo11
 
 # You can override the model task and saved model file name using environment variable like so:

@@ -5,6 +5,23 @@ from typing import List
 
 import data
 
+########## Image Classification ##########
+class ImageClassificationRequest(BaseModel):
+    """Image classification RPC request."""
+
+    base64_imgs: List[str]  # base64 encoded images
+
+
+class ImageClassificationResponse(BaseModel):
+    """Image classification RPC response.
+
+    The order of both lists align with each other.
+    """
+
+    classes: List[List[str]]
+    probabilities: List[List[float]]
+    model_info: data.ModelInfo
+
 
 ########## Object Detection ##########
 class ObjectDetectionRequest(BaseModel):
