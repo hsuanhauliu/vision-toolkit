@@ -4,8 +4,9 @@ Tools for Computer Vision experiments.
 
 ## YOLO11
 
-Inference service serving Ultralytics' [YOLO11](https://docs.ultralytics.com/models/yolo11/) model built with Docker.
+Web UI and inference server for Ultralytics' [YOLO11](https://docs.ultralytics.com/models/yolo11/) models in one Docker image.
 
+<details>
 You can check out the frontend clients via the links below. Note that this is just the frontend app and not connected to any backend.
 
 - <https://hsuanhauliu.github.io/vision-toolkit/object_detection>
@@ -52,3 +53,5 @@ docker run --rm -v ./data:/app/data --name yolo11 -p 8000:5000 yolo11
 # - pose_estimation
 docker run --rm -v ./data:/app/data --name yolo11 -p 8000:5000 -e YOLO_TASK=object_detection -e SAVED_MODEL=yolo_model.pt yolo11
 ```
+
+<details/>
