@@ -1,0 +1,1343 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Instance Segmentation</title>
+    <!-- Tailwind CSS for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts: Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: {
+                            DEFAULT: '#10B981', // Green
+                            hover: '#059669',
+                            light: '#ECFDF5',
+                        },
+                        secondary: '#6B7280',
+                        light: '#F9FAFB',
+                        dark: '#1F2937',
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #F9FAFB;
+        }
+
+        html,
+        body {
+            height: 100%;
+            overflow: hidden;
+        }
+
+        #image-container {
+            position: relative;
+            cursor: crosshair; /* Default cursor for interaction */
+        }
+
+        /* Canvases are stacked on top of the image */
+        #mask-canvas, #prompt-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            pointer-events: none; /* Mask canvas doesn't need events */
+        }
+        
+        #mask-canvas {
+            z-index: 5; /* Ensure masks are below prompts */
+        }
+
+        #prompt-canvas {
+            pointer-events: auto; /* Prompt canvas needs events for drawing */
+            z-index: 10; /* Ensure prompts are on top of masks */
+        }
+
+        .rotate-180 {
+            transform: rotate(180deg);
+        }
+
+        .transition-all {
+            transition: all 0.3s ease-in-out;
+        }
+
+        .nav-arrow {
+            position: absolute;
+            top: 50%;
+            transform: translateY(-50%);
+            background-color: rgba(0, 0, 0, 0.4);
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 44px;
+            height: 44px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: background-color 0.2s, transform 0.2s;
+            z-index: 20; /* High z-index */
+        }
+
+        .nav-arrow:hover {
+            background-color: rgba(0, 0, 0, 0.7);
+            transform: translateY(-50%) scale(1.1);
+        }
+
+        .nav-arrow:disabled {
+            display: none;
+        }
+
+        /* Carousel scrollbar styling */
+        #carousel-track::-webkit-scrollbar {
+            height: 8px;
+        }
+
+        #carousel-track::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 10px;
+        }
+
+        #carousel-track::-webkit-scrollbar-thumb {
+            background: #d1d5db;
+            border-radius: 10px;
+        }
+
+        #carousel-track::-webkit-scrollbar-thumb:hover {
+            background: #9ca3af;
+        }
+
+        /* Point prompt context menu */
+        #point-menu {
+            position: absolute;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            padding: 4px;
+            z-index: 100;
+        }
+        #point-menu button {
+            display: block;
+            width: 100%;
+            padding: 8px 12px;
+            text-align: left;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 500;
+        }
+        #point-menu button:hover {
+            background-color: #f3f4f6;
+        }
+        /* Style for color inputs */
+        .color-input {
+            -webkit-appearance: none;
+            -moz-appearance: none;
+            appearance: none;
+            width: 24px;
+            height: 24px;
+            background-color: transparent;
+            border: none;
+            cursor: pointer;
+        }
+        .color-input::-webkit-color-swatch-wrapper {
+            padding: 0;
+        }
+        .color-input::-webkit-color-swatch {
+            border-radius: 50%;
+            border: 2px solid #e5e7eb;
+        }
+        .color-input::-moz-color-swatch {
+            border-radius: 50%;
+            border: 2px solid #e5e7eb;
+        }
+    </style>
+</head>
+
+<body class="h-full">
+
+    <div class="flex flex-col lg:flex-row h-full w-full">
+
+        <!-- Left Column: Image and Controls -->
+        <div class="w-full lg:w-3/5 flex flex-col p-4 sm:p-8 bg-white">
+
+            <!-- Controls Wrapper -->
+            <div class="flex-shrink-0">
+                <div class="flex justify-between items-center mb-4 flex-wrap gap-4">
+                    <div class="flex items-center gap-4">
+                        <label for="image-upload"
+                            class="inline-flex items-center bg-primary-light text-primary-dark font-semibold py-2 px-5 border border-primary/20 rounded-xl shadow-sm hover:bg-primary/20 cursor-pointer transition-all">
+                            <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                                xmlns="http://www.w3.org/2000/svg">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path>
+                            </svg>
+                            <span>Upload Image(s)</span>
+                        </label>
+                        <input type="file" id="image-upload" accept="image/*" class="hidden" multiple>
+                    </div>
+                    <div class="flex items-center gap-2 flex-wrap">
+                         <button id="undo-btn"
+                            class="bg-white text-secondary border border-gray-300 font-bold py-2 px-5 rounded-xl hover:bg-gray-100 focus:outline-none focus:ring-4 focus:ring-gray-200 transition-all duration-300 disabled:bg-gray-200 disabled:text-gray-400 disabled:cursor-not-allowed">
+                             Undo
+                         </button>
+                         <button id="clear-masks-btn"
+                            class="bg-white text-secondary border border-gray-300 font-bold py-2 px-5 rounded-xl hover:bg-gray-100 focus:outline-none focus:ring-4 focus:ring-gray-200 transition-all duration-300 disabled:bg-gray-200 disabled:text-gray-400 disabled:cursor-not-allowed">
+                             Clear Masks
+                         </button>
+                         <button id="clear-prompts-btn"
+                            class="bg-white text-secondary border border-gray-300 font-bold py-2 px-5 rounded-xl hover:bg-gray-100 focus:outline-none focus:ring-4 focus:ring-gray-200 transition-all duration-300 disabled:bg-gray-200 disabled:text-gray-400 disabled:cursor-not-allowed">
+                            Clear Prompts
+                        </button>
+                        <button id="segment-button"
+                            class="bg-primary text-white font-bold py-2 px-5 rounded-xl hover:bg-primary-hover focus:outline-none focus:ring-4 focus:ring-primary/30 transition-all duration-300 disabled:bg-gray-300 disabled:cursor-not-allowed shadow-lg shadow-primary/20 hover:shadow-primary/40">
+                            Segment
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Toolbar -->
+                <div id="toolbar" class="mb-4 p-2 bg-light rounded-xl flex items-center justify-between gap-4 border border-gray-200 flex-wrap">
+                    <!-- Mode Selector -->
+                    <div id="mode-selector" class="flex items-center gap-1 bg-gray-200 p-1 rounded-lg">
+                        <button data-mode="box" class="mode-btn bg-white text-primary shadow rounded-md px-3 py-1 text-sm font-semibold">Box</button>
+                        <button data-mode="point" class="mode-btn px-3 py-1 text-sm font-semibold text-secondary">Point</button>
+                        <button data-mode="everything" class="mode-btn px-3 py-1 text-sm font-semibold text-secondary">Everything</button>
+                    </div>
+
+                    <!-- Settings Controls -->
+                    <div class="flex items-center gap-x-4 gap-y-2 flex-wrap">
+                        <!-- Mask Settings -->
+                        <div class="flex items-center gap-2 border-r pr-4 border-gray-300">
+                             <div class="relative group flex justify-center">
+                                <button id="show-masks-btn" title="Toggle Masks" class="p-2 rounded-full hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-secondary" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                                    </svg>
+                                </button>
+                            </div>
+                            <div class="relative group flex justify-center items-center">
+                                <label for="opacity-slider" class="text-secondary" title="Mask Opacity">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M9.663 17h4.673M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
+                                    </svg>
+                                </label>
+                                <input type="range" id="opacity-slider" min="0" max="1" step="0.05" value="0.5" class="w-24 cursor-pointer ml-2">
+                            </div>
+                        </div>
+                        <!-- Prompt Settings -->
+                        <div class="flex items-center gap-2 border-r pr-4 border-gray-300">
+                            <div id="point-controls" class="relative group flex justify-center items-center gap-2 hidden">
+                                <label for="point-fg-color-picker" class="text-secondary flex items-center" title="Foreground Point Color">
+                                    <input type="color" id="point-fg-color-picker" class="color-input">
+                                </label>
+                                 <label for="point-bg-color-picker" class="text-secondary flex items-center" title="Background Point Color">
+                                    <input type="color" id="point-bg-color-picker" class="color-input">
+                                </label>
+                                <label for="point-size-slider" class="text-secondary" title="Point Size">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="currentColor" viewBox="0 0 16 16">
+                                        <circle cx="8" cy="8" r="6"/>
+                                    </svg>
+                                </label>
+                                <input type="range" id="point-size-slider" min="2" max="20" step="1" value="8" class="w-24 cursor-pointer">
+                            </div>
+                             <div id="box-controls" class="relative group flex justify-center items-center gap-2 hidden">
+                                <button id="hide-boxes-btn" title="Toggle Boxes" class="p-2 rounded-full hover:bg-gray-200">
+                                    <!-- Icon will be set by JS -->
+                                </button>
+                                <label for="box-color-picker" class="text-secondary flex items-center" title="Box Color">
+                                    <input type="color" id="box-color-picker" class="color-input">
+                                </label>
+                            </div>
+                        </div>
+                         <!-- Download Button -->
+                        <div class="relative group flex justify-center">
+                            <button id="download-btn" title="Download Image" class="p-2 rounded-full hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-secondary" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Image Display -->
+            <div class="flex-grow relative flex flex-col justify-center items-center min-h-0">
+                <div id="image-container" class="relative w-full h-full flex items-center justify-center border-2 border-dashed border-gray-200 rounded-2xl bg-light">
+                    <img id="uploaded-image" src="" alt="Uploaded image" class="max-w-full max-h-full object-contain hidden rounded-lg">
+                    <canvas id="mask-canvas"></canvas>
+                    <canvas id="prompt-canvas"></canvas>
+                    <p id="placeholder-text" class="text-secondary">Upload image(s) to get started</p>
+                    
+                    <div id="loading-overlay" class="absolute inset-0 bg-white bg-opacity-75 flex items-center justify-center rounded-2xl hidden z-20 backdrop-blur-sm">
+                        <div class="flex flex-col items-center">
+                            <svg class="animate-spin h-10 w-10 text-primary" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                            <p class="mt-4 text-secondary font-medium">Processing...</p>
+                        </div>
+                    </div>
+
+                    <button id="prev-image-btn" class="nav-arrow left-4" disabled><svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path></svg></button>
+                    <button id="next-image-btn" class="nav-arrow right-4" disabled><svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg></button>
+                </div>
+                 <div class="h-6"><!-- Placeholder to prevent layout shift --></div>
+            </div>
+
+            <div id="image-name-bar" class="flex-shrink-0 text-center pt-2 h-8">
+                <span id="file-name" class="text-sm text-secondary"></span>
+            </div>
+
+            <!-- Carousel -->
+            <div id="carousel-container" class="flex-shrink-0 w-full h-24">
+                <div id="carousel-track" class="flex items-center gap-3 p-2 h-full overflow-x-auto bg-light border rounded-xl"></div>
+            </div>
+
+        </div>
+
+        <!-- Right Column: Results -->
+        <div id="results-column" class="w-full lg:w-2/5 flex flex-col p-8 space-y-6 bg-light overflow-y-auto">
+             <div class="bg-white rounded-2xl shadow-sm border flex-shrink-0">
+                <button id="toggle-summary" class="w-full flex justify-between items-center p-5">
+                    <h3 class="font-bold text-lg text-dark">Summary</h3>
+                    <svg class="w-6 h-6 text-gray-400 transition-transform rotate-180" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                    </svg>
+                </button>
+                <div id="summary-container-content" class="px-5 pb-5 pt-0 space-y-5">
+                    <div id="segmentation-summary-section">
+                        <h4 class="font-semibold text-md text-dark mb-2">Inference Summary</h4>
+                        <div id="segmentation-summary-content">
+                            <p class="text-sm text-secondary">No summary yet.</p>
+                        </div>
+                    </div>
+                    <div id="model-summary-section" class="border-t pt-4">
+                        <h4 class="font-semibold text-md text-dark mb-2">Model Information</h4>
+                        <div id="model-summary-content">
+                            <p class="text-sm text-secondary">No model info yet.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Point Label Menu (hidden by default) -->
+    <div id="point-menu" class="hidden">
+        <button id="point-fg" class="text-green-600">Foreground</button>
+        <button id="point-bg" class="text-red-600">Background</button>
+    </div>
+
+
+    <script>
+        // --- DOM Element References ---
+        const imageUpload = document.getElementById('image-upload');
+        const fileNameSpan = document.getElementById('file-name');
+        const uploadedImage = document.getElementById('uploaded-image');
+        const imageContainer = document.getElementById('image-container');
+        const maskCanvas = document.getElementById('mask-canvas');
+        const promptCanvas = document.getElementById('prompt-canvas');
+        const segmentBtn = document.getElementById('segment-button');
+        const clearPromptsBtn = document.getElementById('clear-prompts-btn');
+        const clearMasksBtn = document.getElementById('clear-masks-btn');
+        const undoBtn = document.getElementById('undo-btn');
+        const placeholderText = document.getElementById('placeholder-text');
+        const loadingOverlay = document.getElementById('loading-overlay');
+        const toolbar = document.getElementById('toolbar');
+        const showMasksBtn = document.getElementById('show-masks-btn');
+        const opacitySlider = document.getElementById('opacity-slider');
+        const pointControls = document.getElementById('point-controls');
+        const pointSizeSlider = document.getElementById('point-size-slider');
+        const pointFgColorPicker = document.getElementById('point-fg-color-picker');
+        const pointBgColorPicker = document.getElementById('point-bg-color-picker');
+        const boxControls = document.getElementById('box-controls');
+        const boxColorPicker = document.getElementById('box-color-picker');
+        const hideBoxesBtn = document.getElementById('hide-boxes-btn');
+        const downloadBtn = document.getElementById('download-btn');
+        const segmentationSummaryContent = document.getElementById('segmentation-summary-content');
+        const modelSummaryContent = document.getElementById('model-summary-content');
+        const carouselTrack = document.getElementById('carousel-track');
+        const modeSelector = document.getElementById('mode-selector');
+        const pointMenu = document.getElementById('point-menu');
+        const pointFgBtn = document.getElementById('point-fg');
+        const pointBgBtn = document.getElementById('point-bg');
+
+        // Navigation
+        const prevImageBtn = document.getElementById('prev-image-btn');
+        const nextImageBtn = document.getElementById('next-image-btn');
+
+        // Collapsible section elements
+        const toggleSummaryBtn = document.getElementById('toggle-summary');
+        const summaryContainerContent = document.getElementById('summary-container-content');
+
+        // --- State Management ---
+        const backendUrl = 'http://localhost:8000/predict'; // Replace with your actual backend URL
+        let imageList = [];
+        let modelInfo = null;
+        let currentImageIndex = -1;
+        let hasDragged = false;
+        
+        const defaultUiState = {
+            mode: 'box', // 'everything', 'point', 'box'
+            showMasks: true,
+            showBoxes: true,
+            maskOpacity: 0.5,
+            pointRadius: 8,
+            pointFgColor: '#10B981',
+            pointBgColor: '#EF4444',
+            boxColor: '#10B981',
+            isDragging: false,
+            dragStart: { relX: 0, relY: 0 },
+            currentBox: null,
+            selectedBoxIndex: -1,
+            resizeHandle: null,
+        };
+
+        let uiState = { ...defaultUiState };
+
+        const colors = ['#f97316', '#3b82f6', '#10b981', '#ef4444', '#8b5cf6', '#eab308', '#6366f1', '#ec4899'];
+
+        // --- Event Listeners ---
+        imageUpload.addEventListener('change', handleImageUpload);
+        segmentBtn.addEventListener('click', handleSegmentation);
+        clearPromptsBtn.addEventListener('click', clearCurrentPrompts);
+        clearMasksBtn.addEventListener('click', clearCurrentMasks);
+        undoBtn.addEventListener('click', handleUndo);
+        showMasksBtn.addEventListener('click', toggleMasksVisibility);
+        hideBoxesBtn.addEventListener('click', () => {
+            uiState.showBoxes = !uiState.showBoxes;
+            updateHideBoxesIcon();
+            redrawAll();
+        });
+        opacitySlider.addEventListener('change', (e) => {
+            uiState.maskOpacity = parseFloat(e.target.value);
+            redrawAll();
+        });
+        pointSizeSlider.addEventListener('change', (e) => {
+            uiState.pointRadius = parseInt(e.target.value, 10);
+            redrawAll();
+        });
+        pointFgColorPicker.addEventListener('input', (e) => {
+            uiState.pointFgColor = e.target.value;
+            redrawAll();
+        });
+        pointBgColorPicker.addEventListener('input', (e) => {
+            uiState.pointBgColor = e.target.value;
+            redrawAll();
+        });
+        boxColorPicker.addEventListener('input', (e) => {
+            uiState.boxColor = e.target.value;
+            redrawAll();
+        });
+        downloadBtn.addEventListener('click', downloadImage);
+        
+        modeSelector.addEventListener('click', handleModeChange);
+        
+        // Prompt canvas listeners
+        promptCanvas.addEventListener('mousedown', handleCanvasMouseDown);
+        promptCanvas.addEventListener('mousemove', handleCanvasMouseMove);
+        promptCanvas.addEventListener('mouseup', handleCanvasMouseUp);
+        promptCanvas.addEventListener('click', handleCanvasClick);
+
+        // Point menu listeners
+        pointFgBtn.addEventListener('click', () => addPoint(true));
+        pointBgBtn.addEventListener('click', () => addPoint(false));
+
+        // Navigation listeners
+        prevImageBtn.addEventListener('click', () => changeImage(-1));
+        nextImageBtn.addEventListener('click', () => changeImage(1));
+        
+        toggleSummaryBtn.addEventListener('click', () => {
+            summaryContainerContent.classList.toggle('hidden');
+            toggleSummaryBtn.querySelector('svg').classList.toggle('rotate-180');
+        });
+
+        window.addEventListener('resize', () => {
+            if (imageList.length > 0) {
+                requestAnimationFrame(redrawAll);
+            }
+        });
+        
+        document.addEventListener('click', (e) => {
+            // Hide point menu if clicked outside
+            if (!pointMenu.contains(e.target)) {
+                pointMenu.classList.add('hidden');
+            }
+        });
+        
+        // --- Initial Setup ---
+        function initializeApp() {
+            uiState = { ...defaultUiState };
+            
+            // Set initial values for controls from default state
+            opacitySlider.value = uiState.maskOpacity;
+            pointSizeSlider.value = uiState.pointRadius;
+            pointFgColorPicker.value = uiState.pointFgColor;
+            pointBgColorPicker.value = uiState.pointBgColor;
+            boxColorPicker.value = uiState.boxColor;
+
+            updateHideBoxesIcon();
+            handleModeChange({ target: document.querySelector(`.mode-btn[data-mode="${uiState.mode}"]`) });
+            renderCarousel();
+            updateUndoButton();
+        }
+
+        initializeApp();
+
+
+        // --- Core Functions ---
+        function handleImageUpload(event) {
+            const newFiles = Array.from(event.target.files);
+            if (newFiles.length === 0) return;
+
+            const wasEmpty = imageList.length === 0;
+
+            const newImages = newFiles.map(file => ({
+                file: file,
+                src: URL.createObjectURL(file),
+                metadata: { name: file.name, size: file.size, type: file.type },
+                prompts: { points: [], boxes: [] },
+                history: [],
+                segmentationResults: null
+            }));
+
+            imageList.push(...newImages);
+
+            if (wasEmpty) {
+                currentImageIndex = 0;
+                displayImage(0);
+            }
+
+            renderCarousel();
+            updateNavButtons();
+            updateFileNameSpan();
+        }
+        
+        function changeImage(direction) {
+            const newIndex = currentImageIndex + direction;
+            if (newIndex >= 0 && newIndex < imageList.length) {
+                currentImageIndex = newIndex;
+                displayImage(currentImageIndex);
+            }
+        }
+
+        function displayImage(index) {
+            if (index < 0 || index >= imageList.length) return;
+
+            const currentImage = imageList[index];
+            uploadedImage.src = currentImage.src;
+
+            uploadedImage.onload = () => {
+                if (!currentImage.metadata.width) {
+                    currentImage.metadata.width = uploadedImage.naturalWidth;
+                    currentImage.metadata.height = uploadedImage.naturalHeight;
+                }
+                
+                uploadedImage.classList.remove('hidden');
+                placeholderText.classList.add('hidden');
+                segmentBtn.disabled = false;
+                clearPromptsBtn.disabled = false;
+                clearMasksBtn.disabled = false;
+                
+                if (currentImage.segmentationResults) {
+                    updateSummary();
+                } else {
+                    clearResults();
+                }
+                populateModelSummary();
+                updateNavButtons();
+                updateFileNameSpan();
+                renderCarousel();
+                updateUndoButton();
+                redrawAll();
+            };
+        }
+
+        async function handleSegmentation() {
+            if (currentImageIndex === -1) return;
+            
+            const currentImage = imageList[currentImageIndex];
+            
+            segmentBtn.disabled = true;
+            loadingOverlay.classList.remove('hidden');
+
+            const base64Image = await new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.readAsDataURL(currentImage.file);
+                reader.onload = () => resolve(reader.result.split(',')[1]);
+                reader.onerror = error => reject(error);
+            });
+            
+            // Build the request payload based on the current mode and prompts
+            const payload = { base64_imgs: [base64Image] };
+            const { naturalWidth, naturalHeight } = uploadedImage;
+
+            if (uiState.mode === 'everything') {
+                payload.everything = true;
+            } else if (uiState.mode === 'point' && currentImage.prompts.points.length > 0) {
+                payload.points = [currentImage.prompts.points.map(p => ({
+                    x: Math.round(p.relX * naturalWidth),
+                    y: Math.round(p.relY * naturalHeight),
+                    label: p.label
+                }))];
+            } else if (uiState.mode === 'box' && currentImage.prompts.boxes.length > 0) {
+                 payload.bounding_boxes = [currentImage.prompts.boxes.map(b => ({
+                    left: Math.round(b.relX * naturalWidth),
+                    top: Math.round(b.relY * naturalHeight),
+                    right: Math.round((b.relX + b.relWidth) * naturalWidth),
+                    bottom: Math.round((b.relY + b.relHeight) * naturalHeight)
+                }))];
+            }
+
+            try {
+                const response = await fetch(backendUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                });
+
+                if (!response.ok) throw new Error(`Server responded with status: ${response.status}`);
+                
+                const data = await response.json();
+                
+                if (!data.masks || !data.model_info) throw new Error('Invalid response format from server.');
+
+                // Store results. The API returns masks for each image sent. We only send one.
+                currentImage.segmentationResults = { masks: data.masks[0] || [] };
+                modelInfo = data.model_info;
+                
+                displayImage(currentImageIndex);
+
+            } catch (error) {
+                console.error('Error during image segmentation:', error);
+                alert(`An error occurred: ${error.message}. Please check the console for details.`);
+            } finally {
+                loadingOverlay.classList.add('hidden');
+                segmentBtn.disabled = false;
+            }
+        }
+        
+        function redrawAll() {
+            if (currentImageIndex === -1 || !uploadedImage.complete || !uploadedImage.naturalWidth) return;
+            
+            const containerRect = imageContainer.getBoundingClientRect();
+            const imageRect = uploadedImage.getBoundingClientRect();
+            
+            // Resize all canvases to match the container
+            [maskCanvas, promptCanvas].forEach(canvas => {
+                canvas.width = containerRect.width;
+                canvas.height = containerRect.height;
+            });
+            
+            redrawMasks(imageRect, containerRect);
+            drawPrompts(imageRect, containerRect);
+        }
+
+        function redrawMasks(imageRect, containerRect) {
+            const currentImage = imageList[currentImageIndex];
+            const segmentationResults = currentImage.segmentationResults;
+            const maskCtx = maskCanvas.getContext('2d');
+            maskCtx.clearRect(0, 0, maskCanvas.width, maskCanvas.height);
+
+            if (!uiState.showMasks || !segmentationResults || !segmentationResults.masks) return;
+
+            const offsetX = imageRect.left - containerRect.left;
+            const offsetY = imageRect.top - containerRect.top;
+            
+            segmentationResults.masks.forEach((base64Mask, i) => {
+                const maskImg = new Image();
+                maskImg.onload = () => {
+                    // Create a temporary canvas to process and color the mask
+                    const tempCanvas = document.createElement('canvas');
+                    const tempCtx = tempCanvas.getContext('2d');
+                    tempCanvas.width = maskImg.naturalWidth;
+                    tempCanvas.height = maskImg.naturalHeight;
+                    
+                    // 1. Draw the original grayscale mask image.
+                    tempCtx.drawImage(maskImg, 0, 0);
+                    
+                    // 2. Get pixel data.
+                    const imageData = tempCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
+                    const data = imageData.data;
+                    
+                    // 3. Get the target color for the mask.
+                    const colorStr = colors[i % colors.length];
+                    const r = parseInt(colorStr.slice(1, 3), 16);
+                    const g = parseInt(colorStr.slice(3, 5), 16);
+                    const b = parseInt(colorStr.slice(5, 7), 16);
+
+                    // 4. Iterate over pixels, color the mask, and make the background transparent.
+                    for (let j = 0; j < data.length; j += 4) {
+                        // Check the red channel value; for grayscale, R, G, and B are the same.
+                        // If the pixel is not black (i.e., it's part of the mask), color it.
+                        if (data[j] > 128) { // Assuming mask is white (255)
+                            data[j] = r;
+                            data[j + 1] = g;
+                            data[j + 2] = b;
+                            // data[j + 3] remains 255 (opaque)
+                        } else {
+                            // If the pixel is black (background), make it transparent.
+                            data[j + 3] = 0;
+                        }
+                    }
+                    
+                    // 5. Put the modified data back.
+                    tempCtx.putImageData(imageData, 0, 0);
+                    
+                    // 6. Draw the result onto the main display canvas.
+                    maskCtx.globalAlpha = uiState.maskOpacity;
+                    maskCtx.drawImage(tempCanvas, offsetX, offsetY, imageRect.width, imageRect.height);
+                    maskCtx.globalAlpha = 1.0; // Reset for other drawing operations.
+                };
+                maskImg.src = `data:image/png;base64,${base64Mask}`;
+            });
+        }
+
+        // --- UI Update Functions ---
+        function updateSummary() {
+            const segmentationResults = imageList[currentImageIndex]?.segmentationResults;
+            if (!segmentationResults || !segmentationResults.masks || segmentationResults.masks.length === 0) {
+                segmentationSummaryContent.innerHTML = `<p class="text-sm text-secondary">No objects segmented.</p>`;
+                return;
+            }
+            const total = segmentationResults.masks.length;
+            segmentationSummaryContent.innerHTML = `<p class="text-sm text-secondary">Found <strong>${total}</strong> segmented object(s).</p>`;
+        }
+
+        function populateModelSummary() {
+            if (!modelInfo) {
+                modelSummaryContent.innerHTML = `<p class="text-sm text-secondary">No model info yet.</p>`;
+                return;
+            }
+            modelSummaryContent.innerHTML = `
+                <div class="space-y-3 text-sm">
+                    <p><strong>Parameters:</strong> <span class="font-mono bg-primary-light text-primary-dark px-2 py-1 rounded-md">${modelInfo.parameters.toLocaleString()}</span></p>
+                    <p><strong>Layers:</strong> <span class="font-mono bg-primary-light text-primary-dark px-2 py-1 rounded-md">${modelInfo.layers.toLocaleString()}</span></p>
+                </div>`;
+        }
+        
+        function updateNavButtons() {
+            prevImageBtn.disabled = currentImageIndex <= 0;
+            nextImageBtn.disabled = currentImageIndex >= imageList.length - 1;
+        }
+
+        function updateFileNameSpan() {
+            if (currentImageIndex !== -1) {
+                const currentImage = imageList[currentImageIndex];
+                fileNameSpan.textContent = `${currentImage.metadata.name} (${currentImageIndex + 1}/${imageList.length})`;
+            } else {
+                fileNameSpan.textContent = '';
+            }
+        }
+
+        function renderCarousel() {
+            carouselTrack.innerHTML = '';
+            if (imageList.length === 0) {
+                carouselTrack.innerHTML = `<p class="text-secondary text-sm w-full text-center">Uploaded images will be displayed here</p>`;
+                return;
+            }
+            imageList.forEach((image, index) => {
+                const thumbWrapper = document.createElement('div');
+                thumbWrapper.className = `cursor-pointer rounded-lg border-2 p-1 transition-all flex-shrink-0 ${index === currentImageIndex ? 'border-primary' : 'border-transparent hover:border-primary/50'}`;
+                thumbWrapper.addEventListener('click', () => {
+                    currentImageIndex = index;
+                    displayImage(index);
+                });
+
+                const thumbImg = document.createElement('img');
+                thumbImg.src = image.src;
+                thumbImg.className = 'w-20 h-16 object-cover rounded-md';
+
+                thumbWrapper.appendChild(thumbImg);
+                carouselTrack.appendChild(thumbWrapper);
+            });
+        }
+
+        function clearResults() {
+            segmentationSummaryContent.innerHTML = '<p class="text-sm text-secondary">No summary yet.</p>';
+            const ctx = maskCanvas.getContext('2d');
+            ctx.clearRect(0, 0, maskCanvas.width, maskCanvas.height);
+        }
+        
+        function clearCurrentPrompts() {
+            if (currentImageIndex === -1) return;
+            saveState();
+            const currentImage = imageList[currentImageIndex];
+            currentImage.prompts = { points: [], boxes: [] };
+            redrawAll();
+        }
+
+        function clearCurrentMasks() {
+            if (currentImageIndex === -1) return;
+            saveState();
+            const currentImage = imageList[currentImageIndex];
+            currentImage.segmentationResults = null;
+            clearResults();
+            redrawAll();
+        }
+
+        // --- Interactivity & Prompting ---
+        
+        function handleModeChange(e) {
+            const button = e.target.closest('.mode-btn');
+            if (!button) return;
+            
+            uiState.mode = button.dataset.mode;
+            
+            // Update button styles
+            document.querySelectorAll('.mode-btn').forEach(btn => {
+                btn.classList.remove('bg-white', 'text-primary', 'shadow');
+                btn.classList.add('text-secondary');
+            });
+            button.classList.add('bg-white', 'text-primary', 'shadow');
+            button.classList.remove('text-secondary');
+            
+            // Show/hide relevant controls
+            pointControls.classList.add('hidden');
+            boxControls.classList.add('hidden');
+            pointControls.classList.remove('flex');
+            boxControls.classList.remove('flex');
+
+            if (uiState.mode === 'point') {
+                pointControls.classList.remove('hidden');
+                pointControls.classList.add('flex');
+            } else if (uiState.mode === 'box') {
+                boxControls.classList.remove('hidden');
+                boxControls.classList.add('flex');
+            }
+
+            // Clear prompts when switching modes
+            if (currentImageIndex !== -1) {
+                imageList[currentImageIndex].prompts = { points: [], boxes: [] };
+            }
+
+            // Reset interaction state
+            uiState.isDragging = false;
+            uiState.selectedBoxIndex = -1;
+            pointMenu.classList.add('hidden');
+            redrawAll();
+        }
+        
+        function getRelativePos(evt) {
+            const imageRect = uploadedImage.getBoundingClientRect();
+            if (imageRect.width === 0 || imageRect.height === 0) return null;
+            const x = evt.clientX - imageRect.left;
+            const y = evt.clientY - imageRect.top;
+            return {
+                relX: x / imageRect.width,
+                relY: y / imageRect.height
+            };
+        }
+
+        function handleCanvasClick(e) {
+            if (currentImageIndex === -1) return;
+            const relPos = getRelativePos(e);
+            if (!relPos) return;
+
+            const currentImage = imageList[currentImageIndex];
+            const imageRect = uploadedImage.getBoundingClientRect();
+
+            if (uiState.mode === 'point') {
+                const pointToRemoveIndex = currentImage.prompts.points.findIndex(p => {
+                    const pX = p.relX * imageRect.width;
+                    const pY = p.relY * imageRect.height;
+                    const clickX = relPos.relX * imageRect.width;
+                    const clickY = relPos.relY * imageRect.height;
+                    const dist = Math.sqrt(Math.pow(pX - clickX, 2) + Math.pow(pY - clickY, 2));
+                    return dist < uiState.pointRadius;
+                });
+
+                if (pointToRemoveIndex !== -1) {
+                    saveState();
+                    currentImage.prompts.points.splice(pointToRemoveIndex, 1);
+                } else {
+                    pointMenu.style.left = `${e.clientX}px`;
+                    pointMenu.style.top = `${e.clientY}px`;
+                    pointMenu.classList.remove('hidden');
+                    pointMenu.dataset.relX = relPos.relX;
+                    pointMenu.dataset.relY = relPos.relY;
+                    e.stopPropagation();
+                }
+                redrawAll();
+            } else if (uiState.mode === 'box') {
+                const clickPos = { x: relPos.relX * imageRect.width, y: relPos.relY * imageRect.height };
+                let deleted = false;
+                for (let i = currentImage.prompts.boxes.length - 1; i >= 0; i--) {
+                    const box = currentImage.prompts.boxes[i];
+                    const boxRect = {
+                        x: box.relX * imageRect.width,
+                        y: box.relY * imageRect.height,
+                        width: box.relWidth * imageRect.width,
+                        height: box.relHeight * imageRect.height
+                    };
+                    const deleteHandle = getDeleteHandleAtPos(boxRect);
+                    if (isPointInBox(clickPos, deleteHandle)) {
+                        saveState();
+                        currentImage.prompts.boxes.splice(i, 1);
+                        uiState.selectedBoxIndex = -1;
+                        deleted = true;
+                        break;
+                    }
+                }
+                if(deleted) redrawAll();
+            }
+        }
+        
+        function addPoint(isForeground) {
+            const relX = parseFloat(pointMenu.dataset.relX);
+            const relY = parseFloat(pointMenu.dataset.relY);
+            
+            if (currentImageIndex !== -1) {
+                saveState();
+                imageList[currentImageIndex].prompts.points.push({ relX, relY, label: isForeground });
+                redrawAll();
+            }
+            pointMenu.classList.add('hidden');
+        }
+        
+        function getHandleAtPos(boxRect, pos) {
+            const handleSize = 10;
+            // Bottom-right
+            if (Math.abs(pos.x - (boxRect.x + boxRect.width)) < handleSize && Math.abs(pos.y - (boxRect.y + boxRect.height)) < handleSize) {
+                return 'br';
+            }
+            // Add other handles here if needed
+            return null;
+        }
+
+        function getDeleteHandleAtPos(boxRect) {
+            const handleSize = 16;
+            return {
+                x: boxRect.x + boxRect.width - handleSize / 2,
+                y: boxRect.y - handleSize / 2,
+                width: handleSize,
+                height: handleSize
+            };
+        }
+
+        /**
+         * MODIFIED: Handles the start of a mouse interaction on the canvas for bounding boxes.
+         * - For existing boxes, it saves the state BEFORE a move or resize begins.
+         * - For new boxes, it simply starts the drawing process without saving state yet.
+         * - It ignores clicks on delete handles, letting `handleCanvasClick` manage them.
+         */
+        function handleCanvasMouseDown(e) {
+            if (currentImageIndex === -1 || uiState.mode !== 'box') return;
+
+            const relPos = getRelativePos(e);
+            if (!relPos) return;
+
+            const boxes = imageList[currentImageIndex].prompts.boxes;
+            const imageRect = uploadedImage.getBoundingClientRect();
+            const clickX = relPos.relX * imageRect.width;
+            const clickY = relPos.relY * imageRect.height;
+
+            // First, check if the click is on a delete handle of any box.
+            // If so, we do nothing here and let handleCanvasClick take care of the deletion.
+            for (const box of boxes) {
+                const boxRect = {
+                    x: box.relX * imageRect.width,
+                    y: box.relY * imageRect.height,
+                    width: box.relWidth * imageRect.width,
+                    height: box.relHeight * imageRect.height
+                };
+                if (uiState.selectedBoxIndex === boxes.indexOf(box)) {
+                    const deleteHandle = getDeleteHandleAtPos(boxRect);
+                    if (isPointInBox({ x: clickX, y: clickY }, deleteHandle)) {
+                        return; // Exit to let the 'click' event handle deletion.
+                    }
+                }
+            }
+
+            uiState.dragStart = relPos;
+            hasDragged = false;
+
+            // Check for resize handles or moving an existing box
+            for (let i = boxes.length - 1; i >= 0; i--) {
+                const b = boxes[i];
+                const boxRect = {
+                    x: b.relX * imageRect.width,
+                    y: b.relY * imageRect.height,
+                    width: b.relWidth * imageRect.width,
+                    height: b.relHeight * imageRect.height,
+                };
+                
+                const handle = getHandleAtPos(boxRect, {x: clickX, y: clickY});
+                if (handle) {
+                    saveState(); // Save state BEFORE move/resize begins
+                    uiState.isDragging = true;
+                    uiState.selectedBoxIndex = i;
+                    uiState.resizeHandle = handle;
+                    redrawAll();
+                    return;
+                }
+                
+                if (isPointInBox({x: clickX, y: clickY}, boxRect)) {
+                    saveState(); // Save state BEFORE move/resize begins
+                    uiState.isDragging = true;
+                    uiState.selectedBoxIndex = i;
+                    uiState.resizeHandle = 'move';
+                    redrawAll();
+                    return;
+                }
+            }
+            
+            // If not clicking on an existing box, start drawing a new one.
+            // DO NOT save state here.
+            uiState.isDragging = true;
+            uiState.selectedBoxIndex = -1;
+            uiState.resizeHandle = null;
+            uiState.currentBox = { relX: relPos.relX, relY: relPos.relY, relWidth: 0, relHeight: 0 };
+            redrawAll();
+        }
+        
+        function handleCanvasMouseMove(e) {
+            if (!uiState.isDragging) return;
+            hasDragged = true;
+
+            const relPos = getRelativePos(e);
+            if (!relPos) return;
+
+            // --- Cursor Update Logic (runs even when not dragging) ---
+            if (!uiState.isDragging && uiState.mode === 'box' && currentImageIndex !== -1) {
+                const boxes = imageList[currentImageIndex].prompts.boxes;
+                const imageRect = uploadedImage.getBoundingClientRect();
+                const mouseX = relPos.relX * imageRect.width;
+                const mouseY = relPos.relY * imageRect.height;
+                
+                let cursorSet = false;
+                for (let i = boxes.length - 1; i >= 0; i--) {
+                    const b = boxes[i];
+                    const boxRect = {
+                        x: b.relX * imageRect.width,
+                        y: b.relY * imageRect.height,
+                        width: b.relWidth * imageRect.width,
+                        height: b.relHeight * imageRect.height,
+                    };
+                    
+                    if (i === uiState.selectedBoxIndex) {
+                        const deleteHandle = getDeleteHandleAtPos(boxRect);
+                        if (isPointInBox({x: mouseX, y: mouseY}, deleteHandle)) {
+                            promptCanvas.style.cursor = 'pointer';
+                            cursorSet = true;
+                            break;
+                        }
+                    }
+
+                    const handle = getHandleAtPos(boxRect, {x: mouseX, y: mouseY});
+                    if (handle) {
+                        promptCanvas.style.cursor = 'se-resize';
+                        cursorSet = true;
+                        break;
+                    }
+                    
+                    if (isPointInBox({x: mouseX, y: mouseY}, boxRect)) {
+                        promptCanvas.style.cursor = 'move';
+                        cursorSet = true;
+                        break;
+                    }
+                }
+
+                if (!cursorSet) {
+                    promptCanvas.style.cursor = 'crosshair';
+                }
+            }
+
+            // --- Dragging Logic ---
+            if (!uiState.isDragging || uiState.mode !== 'box') return;
+
+            if (uiState.selectedBoxIndex !== -1) {
+                const box = imageList[currentImageIndex].prompts.boxes[uiState.selectedBoxIndex];
+                if (uiState.resizeHandle === 'move') {
+                    const dx = relPos.relX - uiState.dragStart.relX;
+                    const dy = relPos.relY - uiState.dragStart.relY;
+                    box.relX += dx;
+                    box.relY += dy;
+                    uiState.dragStart = relPos;
+                } else if (uiState.resizeHandle === 'br') {
+                    box.relWidth = relPos.relX - box.relX;
+                    box.relHeight = relPos.relY - box.relY;
+                }
+            } else if (uiState.currentBox) {
+                uiState.currentBox.relWidth = relPos.relX - uiState.dragStart.relX;
+                uiState.currentBox.relHeight = relPos.relY - uiState.dragStart.relY;
+            }
+
+            redrawAll();
+        }
+        
+        /**
+         * MODIFIED: Handles the end of a mouse interaction for bounding boxes.
+         * - If a new box was drawn, it checks if it's a valid size.
+         * - If valid, it saves the state and adds the new box.
+         * - Invalid boxes (from a simple click) are discarded without saving state.
+         */
+        function handleCanvasMouseUp(e) {
+            if (!uiState.isDragging || uiState.mode !== 'box') return;
+
+            // Case 1: A new box was being drawn
+            if (uiState.currentBox) {
+                const newBox = { ...uiState.currentBox };
+                // Normalize box dimensions so width/height are positive
+                if (newBox.relWidth < 0) {
+                    newBox.relX += newBox.relWidth;
+                    newBox.relWidth *= -1;
+                }
+                if (newBox.relHeight < 0) {
+                    newBox.relY += newBox.relHeight;
+                    newBox.relHeight *= -1;
+                }
+                
+                const imageRect = uploadedImage.getBoundingClientRect();
+                // Check if the box is a meaningful size (i.e., not just a click)
+                if (newBox.relWidth * imageRect.width > 5 && newBox.relHeight * imageRect.height > 5) {
+                    saveState(); // Save state *before* adding the new valid box
+                    imageList[currentImageIndex].prompts.boxes.push(newBox);
+                    uiState.selectedBoxIndex = imageList[currentImageIndex].prompts.boxes.length - 1;
+                }
+            } 
+            // Case 2: An existing box was moved or resized. State was already saved in onMouseDown.
+            // No action needed here.
+            
+            // Reset dragging state
+            uiState.isDragging = false;
+            hasDragged = false;
+            uiState.currentBox = null;
+            uiState.resizeHandle = null;
+            
+            redrawAll();
+        }
+        
+        function drawPrompts(imageRect, containerRect) {
+            if (currentImageIndex === -1) return;
+            
+            const ctx = promptCanvas.getContext('2d');
+            ctx.clearRect(0, 0, promptCanvas.width, promptCanvas.height);
+            
+            const offsetX = imageRect.left - containerRect.left;
+            const offsetY = imageRect.top - containerRect.top;
+            
+            const { points, boxes } = imageList[currentImageIndex].prompts;
+
+            ctx.save();
+            ctx.translate(offsetX, offsetY);
+
+            // Draw points
+            points.forEach(p => {
+                ctx.beginPath();
+                ctx.arc(p.relX * imageRect.width, p.relY * imageRect.height, uiState.pointRadius, 0, 2 * Math.PI);
+                ctx.fillStyle = p.label ? uiState.pointFgColor : uiState.pointBgColor;
+                ctx.fill();
+            });
+            
+            if (uiState.showBoxes) {
+                // Draw boxes
+                boxes.forEach((box, index) => {
+                    const boxRect = {
+                        x: box.relX * imageRect.width,
+                        y: box.relY * imageRect.height,
+                        width: box.relWidth * imageRect.width,
+                        height: box.relHeight * imageRect.height
+                    };
+                    ctx.strokeStyle = uiState.boxColor;
+                    ctx.lineWidth = (index === uiState.selectedBoxIndex) ? 2.5 : 1.5;
+                    ctx.setLineDash([6, 3]);
+                    ctx.strokeRect(boxRect.x, boxRect.y, boxRect.width, boxRect.height);
+                    ctx.setLineDash([]);
+                    if (index === uiState.selectedBoxIndex) {
+                        drawResizeHandles(ctx, boxRect);
+                        drawDeleteHandle(ctx, boxRect);
+                    }
+                });
+                
+                if (uiState.currentBox) {
+                    ctx.strokeStyle = uiState.boxColor;
+                    ctx.lineWidth = 2;
+                    ctx.strokeRect(
+                        uiState.currentBox.relX * imageRect.width, 
+                        uiState.currentBox.relY * imageRect.height, 
+                        uiState.currentBox.relWidth * imageRect.width, 
+                        uiState.currentBox.relHeight * imageRect.height
+                    );
+                }
+            }
+
+            ctx.restore();
+        }
+        
+         function drawResizeHandles(ctx, boxRect) {
+            const handleSize = 8;
+            ctx.fillStyle = uiState.boxColor;
+            // Bottom-right handle
+            ctx.fillRect(boxRect.x + boxRect.width - handleSize / 2, boxRect.y + boxRect.height - handleSize / 2, handleSize, handleSize);
+        }
+
+        function drawDeleteHandle(ctx, boxRect) {
+            const handle = getDeleteHandleAtPos(boxRect);
+            ctx.fillStyle = 'white';
+            ctx.strokeStyle = 'red';
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            ctx.arc(handle.x + handle.width / 2, handle.y + handle.height / 2, handle.width / 2, 0, 2 * Math.PI);
+            ctx.fill();
+            ctx.stroke();
+
+            ctx.strokeStyle = 'red';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(handle.x + 4, handle.y + 4);
+            ctx.lineTo(handle.x + handle.width - 4, handle.y + handle.height - 4);
+            ctx.moveTo(handle.x + handle.width - 4, handle.y + 4);
+            ctx.lineTo(handle.x + 4, handle.y + handle.height - 4);
+            ctx.stroke();
+        }
+        
+        function isPointInBox(pos, box) {
+            return pos.x > box.x && pos.x < box.x + box.width && pos.y > box.y && pos.y < box.y + box.height;
+        }
+
+
+        // --- Toolbar Actions ---
+        function toggleMasksVisibility() {
+            uiState.showMasks = !uiState.showMasks;
+            redrawAll();
+        }
+
+        function updateHideBoxesIcon() {
+            if (uiState.showBoxes) {
+                hideBoxesBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5 text-secondary"><polyline points="9 11 12 14 22 4"></polyline><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path></svg>`;
+            } else {
+                hideBoxesBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5 text-secondary"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect></svg>`;
+            }
+        }
+
+        function triggerDownload(canvas, filename) {
+            const link = document.createElement('a');
+            link.download = filename;
+            link.href = canvas.toDataURL('image/png');
+            link.click();
+        }
+
+        function downloadImage() {
+            if (currentImageIndex === -1) return;
+            const currentImage = imageList[currentImageIndex];
+            const segmentationResults = currentImage.segmentationResults;
+            
+            // Create a canvas at the full, natural resolution of the image.
+            const downloadCanvas = document.createElement('canvas');
+            const downloadCtx = downloadCanvas.getContext('2d');
+            downloadCanvas.width = uploadedImage.naturalWidth;
+            downloadCanvas.height = uploadedImage.naturalHeight;
+            
+            // 1. Draw the original image first.
+            downloadCtx.drawImage(uploadedImage, 0, 0);
+
+            // 2. If there are masks, draw them on top.
+            if (uiState.showMasks && segmentationResults && segmentationResults.masks) {
+                // We need to process each mask again at full resolution.
+                // Using a Promise.all to wait for all masks to be loaded and drawn.
+                const maskPromises = segmentationResults.masks.map((base64Mask, i) => {
+                    return new Promise(resolve => {
+                        const maskImg = new Image();
+                        maskImg.onload = () => {
+                            // This logic is identical to redrawMasks, but operates at full resolution.
+                            const tempCanvas = document.createElement('canvas');
+                            const tempCtx = tempCanvas.getContext('2d');
+                            tempCanvas.width = maskImg.naturalWidth;
+                            tempCanvas.height = maskImg.naturalHeight;
+                            
+                            tempCtx.drawImage(maskImg, 0, 0);
+                            
+                            const imageData = tempCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
+                            const data = imageData.data;
+                            
+                            const colorStr = colors[i % colors.length];
+                            const r = parseInt(colorStr.slice(1, 3), 16);
+                            const g = parseInt(colorStr.slice(3, 5), 16);
+                            const b = parseInt(colorStr.slice(5, 7), 16);
+
+                            for (let j = 0; j < data.length; j += 4) {
+                                if (data[j] > 128) {
+                                    data[j] = r;
+                                    data[j+1] = g;
+                                    data[j+2] = b;
+                                } else {
+                                    data[j + 3] = 0;
+                                }
+                            }
+                            tempCtx.putImageData(imageData, 0, 0);
+                            
+                            // Resolve with the processed canvas so we can draw it later.
+                            resolve(tempCanvas);
+                        };
+                        maskImg.src = `data:image/png;base64,${base64Mask}`;
+                    });
+                });
+
+                Promise.all(maskPromises).then(processedMasks => {
+                    // Set opacity for all masks
+                    downloadCtx.globalAlpha = uiState.maskOpacity;
+                    
+                    // Draw each processed mask onto the download canvas
+                    processedMasks.forEach(maskCanvas => {
+                        downloadCtx.drawImage(maskCanvas, 0, 0, downloadCanvas.width, downloadCanvas.height);
+                    });
+                    
+                    // Reset alpha and trigger the download
+                    downloadCtx.globalAlpha = 1.0;
+                    triggerDownload(downloadCanvas, `segmentation-${currentImage.metadata.name}`);
+                });
+            } else {
+                // If no masks, just download the original image.
+                triggerDownload(downloadCanvas, `segmentation-${currentImage.metadata.name}`);
+            }
+        }
+
+        // --- History Management ---
+        function saveState() {
+            if (currentImageIndex === -1) return;
+            const currentImage = imageList[currentImageIndex];
+            const stateToSave = {
+                prompts: JSON.parse(JSON.stringify(currentImage.prompts)),
+                segmentationResults: JSON.parse(JSON.stringify(currentImage.segmentationResults))
+            };
+            currentImage.history.push(stateToSave);
+            updateUndoButton();
+        }
+
+        function handleUndo() {
+            if (currentImageIndex === -1) return;
+            const currentImage = imageList[currentImageIndex];
+            if (currentImage.history.length > 0) {
+                const lastState = currentImage.history.pop();
+                currentImage.prompts = lastState.prompts;
+                currentImage.segmentationResults = lastState.segmentationResults;
+                redrawAll();
+            }
+            updateUndoButton();
+        }
+
+        function updateUndoButton() {
+            if (currentImageIndex === -1 || imageList[currentImageIndex].history.length === 0) {
+                undoBtn.disabled = true;
+            } else {
+                undoBtn.disabled = false;
+            }
+        }
+    </script>
+</body>
+
+</html>
