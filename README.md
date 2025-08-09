@@ -17,7 +17,7 @@ You can check out the frontend clients via the links below. Note that this is ju
 - <https://hsuanhauliu.github.io/vision-toolkit/instance_segmentation>
 - <https://hsuanhauliu.github.io/vision-toolkit/pose_estimation>
 
-## Run
+### Run
 
 Place the saved model in ./data folder. You can use the provided script to download YOLO11. Modify the URL in the script if you want to use different yolo models.
 
@@ -68,6 +68,12 @@ Web UI and inference server for Ultralytics' [SAM2](https://docs.ultralytics.com
 
 <details>
   <summary>Read more</summary>
+
+### Run
+
+  Use the following commands to build and run Docker. You can download the SAM2 models on their [release page](https://github.com/ultralytics/assets/releases/).
+
+  Check out the client here: <https://hsuanhauliu.github.io/vision-toolkit/instance_segmentation/sam2.html>
 
   ```bash
   docker build -t sam2 -f models/sam2/Dockerfile .
