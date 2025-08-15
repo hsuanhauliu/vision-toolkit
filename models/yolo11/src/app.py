@@ -10,7 +10,6 @@ import os
 import logging
 
 from fast_serve import create_app
-from fastapi import WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 

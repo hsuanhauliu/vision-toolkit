@@ -24,11 +24,10 @@ RUN apt-get update && apt-get install git ffmpeg libsm6 libxext6  -y
 
 # --no-cache-dir is used to reduce the image size by not storing the cache.
 RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir git+https://github.com/hsuanhauliu/fast-serve.gitv0.2.0 && \
     pip install --no-cache-dir opencv-python-headless && \
     pip install --no-cache-dir ultralytics && \
-    pip install --no-cache-dir uvicorn[standard] && \
-    pip install --no-cache-dir git+https://github.com/hsuanhauliu/fast-serve.gitv0.1.0
-
+    pip install --no-cache-dir uvicorn[standard]
 
 # --- Copy Application Code ---
 # copy backend source code
