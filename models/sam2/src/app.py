@@ -12,10 +12,14 @@ import logging
 from typing import List, Union, Optional
 
 from fast_serve import create_app
+from fastapi import WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 LOGGER = logging.getLogger(__name__)
+# Configure logging to show INFO level messages for better debugging
+logging.basicConfig(level=logging.INFO)
+
 saved_model = "./data/" + os.environ.get("SAVED_MODEL", "yolo_model.pt")
 LOGGER.info(f"Loading {saved_model}...")
 MODEL = SAM(saved_model)
@@ -166,3 +170,45 @@ app.add_middleware(
     allow_methods=["*"],  # Allow all methods, including OPTIONS
     allow_headers=["*"],  # Allow all headers
 )
+
+@app.websocket("/predict")
+async def websocket_endpoint(websocket: WebSocket):
+    """
+    WebSocket endpoint for real-time instance segmentation.
+    
+    Receives a JSON object conforming to the Sam2Request schema,
+    processes it using the instance_segmentation function, and
+    sends back a JSON object conforming to the Sam2Response schema.
+    """
+    await websocket.accept()
+    LOGGER.info("WebSocket connection accepted.")
+    try:
+        while True:
+            data = await websocket.receive_json()
+            try:
+                # Validate the incoming data against the Pydantic model
+                request_data = Sam2Request.model_validate(data)
+                
+                # Process the data using the existing inference function
+                result = instance_segmentation(request_data)
+                
+                # Validate the result against the response model
+                response_data = Sam2Response.model_validate(result)
+                
+                # Send the validated data back to the client
+                await websocket.send_json(response_data.model_dump())
+                LOGGER.info("Successfully processed and sent WebSocket response.")
+
+            except Exception as e:
+                # Handle validation errors or errors during processing
+                error_message = f"Error processing request: {e}"
+                LOGGER.error(error_message)
+                await websocket.send_json({"error": error_message})
+
+    except WebSocketDisconnect:
+        LOGGER.info("Client disconnected from websocket.")
+    except Exception as e:
+        # Handle unexpected errors during the connection
+        error_message = f"An unexpected error occurred in websocket: {e}"
+        LOGGER.error(error_message)
+        await websocket.close(code=1011) # Internal Error

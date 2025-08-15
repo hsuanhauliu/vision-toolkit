@@ -26,8 +26,8 @@ RUN apt-get update && apt-get install git ffmpeg libsm6 libxext6  -y
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir opencv-python-headless && \
     pip install --no-cache-dir ultralytics && \
-    pip install --no-cache-dir uvicorn && \
-    pip install --no-cache-dir git+https://github.com/hsuanhauliu/fast-serve.git
+    pip install --no-cache-dir uvicorn[standard] && \
+    pip install --no-cache-dir git+https://github.com/hsuanhauliu/fast-serve.gitv0.1.0
 
 
 # --- Copy Application Code ---
